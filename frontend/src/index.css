@@ -12,7 +12,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  @apply bg-dark-blue text-text-primary;
+  @apply bg-light-bg dark:bg-dark-blue text-light-text dark:text-text-primary;
 }
 
 code, pre {
@@ -35,10 +35,46 @@ code, pre {
   }
 
   .card {
-    @apply bg-darker-blue rounded-lg p-6 shadow-lg;
+    @apply bg-light-card dark:bg-darker-blue rounded-lg p-6 shadow-lg transition-colors duration-200;
   }
 
   .input {
-    @apply bg-darker-blue border border-gray-700 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent-blue;
+    @apply bg-white dark:bg-darker-blue border border-gray-300 dark:border-gray-700 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent-blue;
   }
+}
+
+/* Light mode overrides */
+.dark .card {
+  @apply bg-darker-blue;
+}
+
+.card {
+  @apply bg-light-card;
+}
+
+.dark .input {
+  @apply bg-darker-blue border-gray-700;
+}
+
+.input {
+  @apply bg-white border-gray-300;
+}
+
+/* Button hover effects */
+.btn-primary:hover {
+  @apply bg-blue-600;
+}
+
+.btn-secondary:hover {
+  @apply bg-indigo-600;
+}
+
+/* Improved focus states for accessibility */
+button:focus, a:focus, input:focus, textarea:focus {
+  @apply outline-none ring-2 ring-accent-blue ring-opacity-50;
+}
+
+/* Add smooth transitions for theme switching */
+* {
+  @apply transition-colors duration-200;
 }

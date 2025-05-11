@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, XCircle, ArrowRight, BarChart2, Home } from 'lucide-react';
+import { Clock, ArrowRight, Home } from 'lucide-react';
 import axios from 'axios';
+import statsStorage from '../services/statsStorage';
 
 const API_URL = 'http://localhost:5001/api';
 
@@ -56,6 +57,17 @@ function PracticePage({ sessionData }) {
       console.error('Error loading next item:', error);
       // If no more items, show completion message
       if (error.response?.status === 400) {
+        // Record the final session data if not already recorded
+        if (stats.wpm > 0) {
+          statsStorage.recordSession({
+            date: new Date().toISOString(),
+            duration: timer,
+            items: progress.current,
+            wpm: stats.wpm,
+            accuracy: stats.accuracy
+          });
+        }
+        
         navigate('/stats');
       }
     }
@@ -96,10 +108,25 @@ function PracticePage({ sessionData }) {
 
       // Calculate stats
       const result = response.data.result;
+      const wpm = Math.round(result.wpm);
+      const accuracy = Math.round(result.accuracy * 100);
+      
       setStats({
-        wpm: Math.round(result.wpm),
-        accuracy: Math.round(result.accuracy * 100)
+        wpm: wpm,
+        accuracy: accuracy
       });
+      
+      // Record session in stats storage if this is the last item or if user completes
+      if (response.data.progress.current >= response.data.progress.total) {
+        // Record the session
+        statsStorage.recordSession({
+          date: new Date().toISOString(),
+          duration: timer,
+          items: 1,
+          wpm: wpm,
+          accuracy: accuracy
+        });
+      }
     } catch (error) {
       console.error('Error submitting answer:', error);
     }
@@ -121,16 +148,16 @@ function PracticePage({ sessionData }) {
         {content && userInput && (
           <div className="flex space-x-1 overflow-x-auto pb-2">
             {content.split('').map((char, index) => {
-              let bgColor = "bg-gray-800";
-              let textColor = "text-gray-400";
+              let bgColor = "bg-gray-200 dark:bg-gray-800";
+              let textColor = "text-gray-600 dark:text-gray-400";
 
               if (index < userInput.length) {
                 if (userInput[index] === char) {
-                  bgColor = "bg-green-900/30";
-                  textColor = "text-green-400";
+                  bgColor = "bg-green-100 dark:bg-green-900/30";
+                  textColor = "text-green-600 dark:text-green-400";
                 } else {
-                  bgColor = "bg-red-900/30";
-                  textColor = "text-red-400";
+                  bgColor = "bg-red-100 dark:bg-red-900/30";
+                  textColor = "text-red-600 dark:text-red-400";
                 }
               }
 
@@ -164,7 +191,7 @@ function PracticePage({ sessionData }) {
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold">Typing Practice</h1>
-        <div className="flex items-center space-x-2 text-text-secondary">
+        <div className="flex items-center space-x-2 text-light-text-secondary dark:text-text-secondary">
           <Clock size={18} />
           <span>{formatTime(timer)}</span>
         </div>
@@ -173,22 +200,22 @@ function PracticePage({ sessionData }) {
       <div className="card mb-8">
         <div className="flex justify-between mb-4">
           <div>
-            <span className="text-text-secondary">Phase {phase} of 2</span>
-            <div className="w-32 h-2 bg-gray-800 rounded-full mt-1">
+            <span className="text-light-text-secondary dark:text-text-secondary">Phase {phase} of 2</span>
+            <div className="w-32 h-2 bg-gray-200 dark:bg-gray-800 rounded-full mt-1">
               <div 
                 className="h-2 bg-accent-blue rounded-full" 
                 style={{ width: `${(phase / 2) * 100}%` }}
               ></div>
             </div>
           </div>
-          <div className="flex items-center text-text-secondary">
+          <div className="flex items-center text-light-text-secondary dark:text-text-secondary">
             <span>Progress: {progress.current}/{progress.total}</span>
           </div>
         </div>
 
         {/* Context and Prompt */}
         <div className="mb-6">
-          <div className="text-text-secondary text-sm mb-2">
+          <div className="text-light-text-secondary dark:text-text-secondary text-sm mb-2">
             {currentItem.context} • {currentItem.type}
           </div>
           <div className="text-lg font-semibold">
@@ -197,7 +224,7 @@ function PracticePage({ sessionData }) {
         </div>
 
         {/* Reference Text */}
-        <div className="bg-darker-blue border border-gray-800 rounded-md p-4 mb-6 font-mono">
+        <div className="bg-white dark:bg-darker-blue border border-gray-300 dark:border-gray-800 rounded-md p-4 mb-6 font-mono">
           {currentItem.content}
         </div>
 
@@ -205,12 +232,12 @@ function PracticePage({ sessionData }) {
         {phase === 1 ? (
           <>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-text-secondary mb-2">
+              <label className="block text-sm font-medium text-light-text-secondary dark:text-text-secondary mb-2">
                 Your Answer
               </label>
               <textarea
                 ref={inputRef}
-                className="w-full h-32 bg-darker-blue border border-gray-700 rounded-md p-4 font-mono focus:outline-none focus:ring-2 focus:ring-accent-blue"
+                className="w-full h-32 bg-white dark:bg-darker-blue border border-gray-300 dark:border-gray-700 rounded-md p-4 font-mono focus:outline-none focus:ring-2 focus:ring-accent-blue"
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
                 disabled={!isActive}
@@ -232,7 +259,7 @@ function PracticePage({ sessionData }) {
         ) : (
           <>
             {/* Results */}
-            <div className="bg-gray-900/30 rounded-md p-6 mb-6">
+            <div className="bg-gray-100 dark:bg-gray-900/30 rounded-md p-6 mb-6">
               <h3 className="text-lg font-semibold mb-4">Results</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -240,28 +267,28 @@ function PracticePage({ sessionData }) {
                   <div className="text-4xl font-bold text-accent-blue mb-2">
                     {stats.wpm}
                   </div>
-                  <div className="text-text-secondary">WPM</div>
+                  <div className="text-light-text-secondary dark:text-text-secondary">WPM</div>
                 </div>
                 
                 <div className="flex flex-col items-center">
                   <div className="text-4xl font-bold text-accent-secondary mb-2">
                     {stats.accuracy}%
                   </div>
-                  <div className="text-text-secondary">Accuracy</div>
+                  <div className="text-light-text-secondary dark:text-text-secondary">Accuracy</div>
                 </div>
                 
                 <div className="flex flex-col items-center">
                   <div className="text-4xl font-bold text-yellow-500 mb-2">
                     {timer}s
                   </div>
-                  <div className="text-text-secondary">Time Taken</div>
+                  <div className="text-light-text-secondary dark:text-text-secondary">Time Taken</div>
                 </div>
               </div>
             </div>
 
             <div className="flex justify-between mt-8">
               <button 
-                className="btn bg-gray-800 text-text-secondary hover:bg-gray-700"
+                className="btn bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-light-text dark:text-text-secondary"
                 onClick={() => navigate('/')}
               >
                 <Home size={18} className="mr-2" />

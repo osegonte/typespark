@@ -44,26 +44,45 @@ function HomePage({ setSessionData }) {
     }
   };
 
-  const handleCustomTextSubmit = () => {
+  const handleCustomTextSubmit = async () => {
     if (!customText.trim()) {
       setError('Please enter some text for practice');
       return;
     }
 
-    // Create a text file from the custom text
-    const blob = new Blob([customText], { type: 'text/plain' });
-    const textFile = new File([blob], 'custom-text.txt');
-    setFile(textFile);
+    setIsLoading(true);
+    setError('');
 
-    // Upload the file
-    handleUpload();
+    try {
+      // Create a text file from the custom text
+      const blob = new Blob([customText], { type: 'text/plain' });
+      const textFile = new File([blob], 'custom-text.txt');
+      
+      // Create FormData and append the file
+      const formData = new FormData();
+      formData.append('file', textFile);
+      
+      // Send the request
+      const response = await axios.post(`${API_URL}/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      setSessionData(response.data);
+      navigate('/practice');
+    } catch (err) {
+      setError(err.response?.data?.error || 'An error occurred during upload');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="max-w-4xl mx-auto">
       <div className="text-center mb-12">
         <h1 className="text-3xl font-bold mb-4">TypeSpark Study App</h1>
-        <p className="text-text-secondary text-lg">
+        <p className="text-light-text-secondary dark:text-text-secondary text-lg">
           Build your typing speed and accuracy while learning valuable content
         </p>
       </div>
@@ -75,11 +94,11 @@ function HomePage({ setSessionData }) {
             <Upload className="mr-2" size={20} />
             Upload Learning Material
           </h2>
-          <p className="text-text-secondary mb-6">
+          <p className="text-light-text-secondary dark:text-text-secondary mb-6">
             Upload a text or PDF file to practice with
           </p>
 
-          <div className="border-2 border-dashed border-gray-700 rounded-lg p-8 text-center">
+          <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-8 text-center">
             <input
               type="file"
               id="file-upload"
@@ -117,12 +136,12 @@ function HomePage({ setSessionData }) {
             <FileText className="mr-2" size={20} />
             Custom Text
           </h2>
-          <p className="text-text-secondary mb-6">
+          <p className="text-light-text-secondary dark:text-text-secondary mb-6">
             Paste or type the text you want to practice
           </p>
 
           <textarea
-            className="w-full h-48 bg-darker-blue border border-gray-700 rounded-md p-4 focus:outline-none focus:ring-2 focus:ring-accent-blue"
+            className="w-full h-48 bg-white dark:bg-darker-blue border border-gray-300 dark:border-gray-700 rounded-md p-4 focus:outline-none focus:ring-2 focus:ring-accent-blue"
             placeholder="Paste or type your practice text here..."
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
@@ -145,21 +164,21 @@ function HomePage({ setSessionData }) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="p-4">
             <h3 className="font-semibold mb-2">Learn While Typing</h3>
-            <p className="text-text-secondary">
+            <p className="text-light-text-secondary dark:text-text-secondary">
               Practice with study materials to improve retention
             </p>
           </div>
           
           <div className="p-4">
             <h3 className="font-semibold mb-2">Track Progress</h3>
-            <p className="text-text-secondary">
+            <p className="text-light-text-secondary dark:text-text-secondary">
               View detailed stats on typing speed and accuracy
             </p>
           </div>
           
           <div className="p-4">
             <h3 className="font-semibold mb-2">Build Consistency</h3>
-            <p className="text-text-secondary">
+            <p className="text-light-text-secondary dark:text-text-secondary">
               Track daily streaks and practice minutes
             </p>
           </div>
@@ -167,7 +186,7 @@ function HomePage({ setSessionData }) {
       </div>
 
       {error && (
-        <div className="mt-4 p-3 bg-red-900/30 border border-red-500 text-red-200 rounded">
+        <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 border border-red-500 text-red-700 dark:text-red-200 rounded">
           {error}
         </div>
       )}
