@@ -1,0 +1,13 @@
+{
+  "name": "typespark-backend",
+  "version": "1.0.0",
+  "description": "Backend for TypeSpark Study App",
+  "main": "app.py",
+  "scripts": {
+    "start": "python app.py",
+    "dev": "flask run --host=0.0.0.0 --port=5000"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}

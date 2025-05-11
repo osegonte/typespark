@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  @apply bg-dark-blue text-text-primary;
+}
+
+code, pre {
+  font-family: 'IBM Plex Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Custom component styles */
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-colors;
+  }
+  
+  .btn-primary {
+    @apply bg-accent-blue text-white hover:bg-blue-500;
+  }
+  
+  .btn-secondary {
+    @apply bg-accent-secondary text-white hover:bg-indigo-500;
+  }
+
+  .card {
+    @apply bg-darker-blue rounded-lg p-6 shadow-lg;
+  }
+
+  .input {
+    @apply bg-darker-blue border border-gray-700 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-accent-blue;
+  }
+}
