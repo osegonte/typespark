@@ -44,18 +44,55 @@ def upload_file():
             parser = PDFParser(file_path)
             study_items = parser.extract_items()
         else:
-            # For text files, a simpler parser could be used
-            with open(file_path, 'r', encoding='utf-8') as f:
-                text = f.read()
-            study_items = [
-                {
+            # For text files, use a more robust parser
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                
+                # Create multiple study items by splitting text into paragraphs
+                paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+                study_items = []
+                
+                # If no paragraphs found or text is very short, use the entire text as one item
+                if not paragraphs or len(text) < 100:
+                    study_items = [{
+                        'id': str(uuid.uuid4()),
+                        'prompt': 'Type this text:',
+                        'content': text,
+                        'type': 'text',
+                        'context': 'Custom Text'
+                    }]
+                else:
+                    for i, paragraph in enumerate(paragraphs):
+                        # Only use paragraphs with meaningful content
+                        if len(paragraph) > 10:
+                            study_items.append({
+                                'id': str(uuid.uuid4()),
+                                'prompt': f"Type this paragraph ({i+1}/{len(paragraphs)}):",
+                                'content': paragraph,
+                                'type': 'text',
+                                'context': 'Custom Text'
+                            })
+                
+                # If still no items after filtering, create one with the entire text
+                if not study_items:
+                    study_items = [{
+                        'id': str(uuid.uuid4()),
+                        'prompt': 'Type this text:',
+                        'content': text,
+                        'type': 'text',
+                        'context': 'Custom Text'
+                    }]
+            except Exception as e:
+                print(f"Error processing text file: {str(e)}")
+                # Fallback to simple text item
+                study_items = [{
                     'id': str(uuid.uuid4()),
                     'prompt': 'Type this text:',
-                    'content': text,
+                    'content': 'Sample text for typing practice.',
                     'type': 'text',
                     'context': 'Custom Text'
-                }
-            ]
+                }]
         
         # Create a session for this content
         session_id = str(uuid.uuid4())

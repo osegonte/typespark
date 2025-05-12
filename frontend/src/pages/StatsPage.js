@@ -5,7 +5,10 @@ import statsStorage from '../services/statsStorage';
 import { useTheme } from '../contexts/ThemeContext';
 
 function StatsPage() {
+  // We're not using isDarkMode directly, but it's okay to leave it here
+  // since we may need it in the future for theme-specific adjustments
   const { isDarkMode } = useTheme();
+  
   const [stats, setStats] = useState({
     averageWpm: 0,
     accuracy: 0,

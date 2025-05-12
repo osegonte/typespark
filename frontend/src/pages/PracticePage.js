@@ -16,6 +16,8 @@ function PracticePage({ sessionData }) {
   const [results, setResults] = useState(null);
   const [phase, setPhase] = useState(1); // 1: In progress, 2: Result shown
   const [stats, setStats] = useState({ wpm: 0, accuracy: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const inputRef = useRef(null);
   const timerInterval = useRef(null);
   const startTime = useRef(null);
@@ -44,6 +46,9 @@ function PracticePage({ sessionData }) {
   }, [sessionData, navigate]);
 
   const loadNextItem = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
       const response = await axios.get(`${API_URL}/session/${sessionData.session_id}/next`);
       setCurrentItem(response.data.item);
@@ -53,9 +58,11 @@ function PracticePage({ sessionData }) {
       setPhase(1);
       resetTimer();
       startTimer();
+      setLoading(false);
     } catch (error) {
       console.error('Error loading next item:', error);
-      // If no more items, show completion message
+      
+      // If no more items, show completion message and go to stats page
       if (error.response?.status === 400) {
         // Record the final session data if not already recorded
         if (stats.wpm > 0) {
@@ -69,6 +76,10 @@ function PracticePage({ sessionData }) {
         }
         
         navigate('/stats');
+      } else {
+        // Display error message and provide option to go back
+        setLoading(false);
+        setError('Could not load practice item. Please try again.');
       }
     }
   };
@@ -129,6 +140,7 @@ function PracticePage({ sessionData }) {
       }
     } catch (error) {
       console.error('Error submitting answer:', error);
+      setError('Could not submit your answer. Please try again.');
     }
   };
 
@@ -176,13 +188,44 @@ function PracticePage({ sessionData }) {
     );
   };
 
-  if (!sessionData || !currentItem) {
+  if (loading) {
     return (
       <div className="text-center py-12">
         <div className="animate-spin mb-4">
           <Clock size={40} className="mx-auto text-accent-blue" />
         </div>
         <p>Loading practice session...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-500 mb-4">
+          <p className="text-xl font-bold">Error</p>
+          <p>{error}</p>
+        </div>
+        <button 
+          className="btn btn-primary mt-4"
+          onClick={() => navigate('/')}
+        >
+          Back to Home
+        </button>
+      </div>
+    );
+  }
+
+  if (!sessionData || !currentItem) {
+    return (
+      <div className="text-center py-12">
+        <p>No practice session found. Start a new practice session from the home page.</p>
+        <button 
+          className="btn btn-primary mt-4"
+          onClick={() => navigate('/')}
+        >
+          Back to Home
+        </button>
       </div>
     );
   }

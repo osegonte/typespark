@@ -35,9 +35,14 @@ function HomePage({ setSessionData }) {
         }
       });
 
-      setSessionData(response.data);
-      navigate('/practice');
+      if (response.data && response.data.items_count > 0) {
+        setSessionData(response.data);
+        navigate('/practice');
+      } else {
+        setError('No content could be extracted from the file.');
+      }
     } catch (err) {
+      console.error('Upload error:', err);
       setError(err.response?.data?.error || 'An error occurred during upload');
     } finally {
       setIsLoading(false);
@@ -54,8 +59,15 @@ function HomePage({ setSessionData }) {
     setError('');
 
     try {
+      // Format text to ensure paragraphs
+      const formattedText = customText
+        .split('\n')
+        .map(line => line.trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n'); // Replace 3+ newlines with 2
+
       // Create a text file from the custom text
-      const blob = new Blob([customText], { type: 'text/plain' });
+      const blob = new Blob([formattedText], { type: 'text/plain' });
       const textFile = new File([blob], 'custom-text.txt');
       
       // Create FormData and append the file
@@ -69,9 +81,14 @@ function HomePage({ setSessionData }) {
         }
       });
       
-      setSessionData(response.data);
-      navigate('/practice');
+      if (response.data && response.data.items_count > 0) {
+        setSessionData(response.data);
+        navigate('/practice');
+      } else {
+        setError('No content could be extracted from the text.');
+      }
     } catch (err) {
+      console.error('Text upload error:', err);
       setError(err.response?.data?.error || 'An error occurred during upload');
     } finally {
       setIsLoading(false);
@@ -122,10 +139,10 @@ function HomePage({ setSessionData }) {
             disabled={isLoading || !file}
           >
             {isLoading ? (
-              <>
+              <div className="flex items-center justify-center">
                 <RefreshCw className="animate-spin mr-2" size={16} />
-                Processing...
-              </>
+                <span>Processing...</span>
+              </div>
             ) : 'Start Typing Practice'}
           </button>
         </div>
@@ -152,7 +169,12 @@ function HomePage({ setSessionData }) {
             onClick={handleCustomTextSubmit}
             disabled={isLoading || !customText.trim()}
           >
-            Start Typing Practice
+            {isLoading ? (
+              <div className="flex items-center justify-center">
+                <RefreshCw className="animate-spin mr-2" size={16} />
+                <span>Processing...</span>
+              </div>
+            ) : 'Start Typing Practice'}
           </button>
         </div>
       </div>
