@@ -5,9 +5,11 @@ import json
 import uuid
 from werkzeug.utils import secure_filename
 from pdf_parser import PDFParser
+from app_diagnostics import register_diagnostic_routes
 
 app = Flask(__name__, static_folder='../frontend/build')
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+register_diagnostic_routes(app, UPLOAD_FOLDER)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
