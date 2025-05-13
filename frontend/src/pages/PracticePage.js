@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, ArrowRight, Home, AlertCircle } from 'lucide-react';
 import statsStorage from '../services/statsStorage';
 
-const API_URL = 'http://localhost:5001/api';
+const API_URL = 'http://localhost:5002/api';
 
 function PracticePage({ sessionData }) {
   const navigate = useNavigate();

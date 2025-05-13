@@ -1,3 +1,6 @@
+// Add this file to frontend/src/services/statsStorage.js
+// This is a simple implementation to store typing stats locally
+
 // Stats storage service using localStorage
 const STORAGE_KEY = 'typespark_stats';
 const SESSIONS_KEY = 'typespark_sessions';

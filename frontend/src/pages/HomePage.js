@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, RefreshCw, AlertCircle, ZapIcon, Zap } from 'lucide-react';
+import { Upload, FileText, RefreshCw, AlertCircle, Zap } from 'lucide-react';
 import axios from 'axios';
 
-// Configure API URL
-const API_URL = 'http://localhost:5001/api';
+// Configure API URL - make sure this points to port 5002
+const API_URL = 'http://localhost:5002/api';
 
 // Configure Axios with defaults and timeout
 const api = axios.create({
@@ -20,9 +20,26 @@ function HomePage({ setSessionData }) {
   const [file, setFile] = useState(null);
   const [customText, setCustomText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [processingTime, setProcessingTime] = useState(null);
   const [error, setError] = useState('');
+  const [backendStatus, setBackendStatus] = useState('unknown'); // 'unknown', 'connected', 'disconnected'
   const navigate = useNavigate();
+
+  // Check backend connectivity on component mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        await axios.get(`${API_URL}/health`, { timeout: 5000 });
+        setBackendStatus('connected');
+      } catch (error) {
+        console.error('Backend connection check failed:', error.message);
+        setBackendStatus('disconnected');
+      }
+    };
+    
+    checkConnection();
+  }, []);
 
   // Handle file selection
   const handleFileChange = (e) => {
@@ -48,42 +65,56 @@ function HomePage({ setSessionData }) {
     setIsLoading(true);
     setError('');
     setProcessingTime(null);
+    setUploadProgress(0);
 
     const formData = new FormData();
     formData.append('file', file);
 
     try {
+      console.log('Starting upload of file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size
+      });
+      
       const startTime = Date.now();
       
-      const response = await fetch(`${API_URL}/upload`, {
-        method: 'POST',
-        body: formData,
-        // Set a longer timeout for PDF processing
-        signal: AbortSignal.timeout(60000) // 60 second timeout
+      // Send the upload request
+      const response = await axios.post(`${API_URL}/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        onUploadProgress: progressEvent => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            console.log(`Upload progress: ${percentCompleted}%`);
+            setUploadProgress(percentCompleted);
+          }
+        }
       });
       
       const endTime = Date.now();
       setProcessingTime(endTime - startTime);
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('Upload response:', data);
+      console.log('Upload response:', response.data);
 
-      if (data && data.session_id) {
+      if (response.data && response.data.session_id) {
         // Store session data and navigate to practice page
-        setSessionData(data);
+        setSessionData(response.data);
         navigate('/practice');
       } else {
         setError('No content could be extracted from the file.');
       }
     } catch (err) {
       console.error('Upload error:', err);
-      if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+      
+      // Provide more user-friendly error messages
+      if (err.code === 'ECONNABORTED') {
         setError('The request took too long. Please try a smaller file or use the Quick Start option.');
+      } else if (err.response) {
+        setError(err.response.data?.error || `Error: ${err.response.status}`);
+      } else if (err.request) {
+        setError('No response from server. Please check if the backend is running.');
       } else {
         setError(err.message || 'An error occurred during upload');
       }
@@ -101,8 +132,11 @@ function HomePage({ setSessionData }) {
 
     setIsLoading(true);
     setError('');
+    setUploadProgress(0);
 
     try {
+      console.log('Processing custom text');
+      
       // Limit text length for performance
       const limitedText = customText.length > 20000 
         ? customText.substring(0, 20000) + '\n\n(Text truncated to 20,000 characters for performance)'
@@ -125,32 +159,36 @@ function HomePage({ setSessionData }) {
       const formData = new FormData();
       formData.append('file', textFile);
       
-      // Send the request using fetch instead of axios
-      const response = await fetch(`${API_URL}/upload`, {
-        method: 'POST',
-        body: formData,
-        signal: AbortSignal.timeout(30000) // 30 second timeout
+      // Send the request
+      const response = await axios.post(`${API_URL}/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        onUploadProgress: progressEvent => {
+          if (progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(percentCompleted);
+          }
+        }
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
-      }
+      console.log('Custom text upload response:', response.data);
       
-      const data = await response.json();
-      console.log('Custom text upload response:', data);
-      
-      if (data && data.session_id) {
+      if (response.data && response.data.session_id) {
         // Store session data and navigate to practice page
-        setSessionData(data);
+        setSessionData(response.data);
         navigate('/practice');
       } else {
         setError('No content could be extracted from the text.');
       }
     } catch (err) {
       console.error('Text upload error:', err);
-      if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+      if (err.code === 'ECONNABORTED') {
         setError('The request took too long. Please try a smaller text or use the Quick Start option.');
+      } else if (err.response) {
+        setError(err.response.data?.error || `Error: ${err.response.status}`);
+      } else if (err.request) {
+        setError('No response from server. Please check if the backend is running.');
       } else {
         setError(err.message || 'An error occurred during upload');
       }
@@ -165,26 +203,26 @@ function HomePage({ setSessionData }) {
     setError('');
 
     try {
-      const response = await fetch(`${API_URL}/quickstart`);
+      console.log('Starting quick practice session');
+      const response = await axios.get(`${API_URL}/quickstart`);
+      console.log('Quick start response:', response.data);
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('Quick start response:', data);
-      
-      if (data && data.session_id) {
+      if (response.data && response.data.session_id) {
         // Store session data and navigate to practice page
-        setSessionData(data);
+        setSessionData(response.data);
         navigate('/practice');
       } else {
         setError('Could not create quick start session.');
       }
     } catch (err) {
       console.error('Quick start error:', err);
-      setError(err.message || 'An error occurred during quick start');
+      if (err.response) {
+        setError(err.response.data?.error || `Error: ${err.response.status}`);
+      } else if (err.request) {
+        setError('No response from server. Please check if the backend is running.');
+      } else {
+        setError(err.message || 'An error occurred during quick start');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -199,7 +237,18 @@ function HomePage({ setSessionData }) {
         </p>
       </div>
 
-      {/* Quick Start Button - NEW */}
+      {/* Backend Status Indicator */}
+      {backendStatus === 'disconnected' && (
+        <div className="mb-8 p-3 bg-red-100 dark:bg-red-900/30 border border-red-500 text-red-700 dark:text-red-200 rounded flex items-start">
+          <AlertCircle size={20} className="mr-2 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Backend server not connected</p>
+            <p className="text-sm">The backend server appears to be offline. Make sure it's running on port 5002.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Start Button */}
       <div className="mb-8 card p-6 text-center">
         <h2 className="text-xl font-semibold mb-4 flex items-center justify-center">
           <Zap className="mr-2 text-yellow-500" size={24} />
@@ -209,7 +258,7 @@ function HomePage({ setSessionData }) {
           Start practicing immediately with pre-loaded sample text
         </p>
         <button 
-          className="btn bg-yellow-500 hover:bg-yellow-600 text-white max-w-md mx-auto"
+          className="btn bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-md"
           onClick={handleQuickStart}
           disabled={isLoading}
         >
@@ -262,7 +311,7 @@ function HomePage({ setSessionData }) {
             {isLoading ? (
               <div className="flex items-center justify-center">
                 <RefreshCw className="animate-spin mr-2" size={16} />
-                <span>Processing...</span>
+                <span>Processing... {uploadProgress > 0 ? `${uploadProgress}%` : ''}</span>
               </div>
             ) : 'Start Typing Practice'}
           </button>
@@ -296,7 +345,7 @@ function HomePage({ setSessionData }) {
             {isLoading ? (
               <div className="flex items-center justify-center">
                 <RefreshCw className="animate-spin mr-2" size={16} />
-                <span>Processing...</span>
+                <span>Processing... {uploadProgress > 0 ? `${uploadProgress}%` : ''}</span>
               </div>
             ) : 'Start Typing Practice'}
           </button>

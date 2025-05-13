@@ -51,13 +51,16 @@ def upload_file():
     if request.method == 'OPTIONS':
         return '', 200
     
-    start_time = time.time()
-    print(f"Starting file upload at {start_time}")
-        
+    print("=== Upload request received ===")
+    print(f"Content-Type: {request.content_type}")
+    print(f"Has file part: {'file' in request.files}")
+    
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
         
     file = request.files['file']
+    print(f"Filename: {file.filename}")
+    
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
@@ -65,6 +68,7 @@ def upload_file():
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)  # Reset file pointer
+    print(f"File size: {file_size} bytes")
     
     if file_size > MAX_CONTENT_SIZE:
         return jsonify({'error': f'File too large. Maximum size is {MAX_CONTENT_SIZE/1024/1024}MB'}), 413
@@ -73,9 +77,9 @@ def upload_file():
         try:
             filename = secure_filename(file.filename)
             file_path = os.path.join(UPLOAD_FOLDER, filename)
+            print(f"Saving to: {file_path}")
             file.save(file_path)
-            
-            print(f"File saved to {file_path}, size: {file_size/1024:.2f}KB")
+            print(f"File saved successfully")
             
             # Process the file based on type
             study_items = []
@@ -90,53 +94,47 @@ def upload_file():
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         text = f.read()
-                    
-                    # Create multiple study items by splitting text into paragraphs
-                    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-                    
-                    # If no paragraphs found or text is very short, use the entire text as one item
-                    if not paragraphs or len(text) < 100:
-                        study_items = [{
-                            'id': str(uuid.uuid4()),
-                            'prompt': 'Type this text:',
-                            'content': text,
-                            'type': 'text',
-                            'context': 'Custom Text'
-                        }]
-                    else:
-                        # Limit to 20 paragraphs for performance
-                        for i, paragraph in enumerate(paragraphs[:20]):
-                            # Only use paragraphs with meaningful content
-                            if len(paragraph) > 10:
-                                study_items.append({
-                                    'id': str(uuid.uuid4()),
-                                    'prompt': f"Type this paragraph ({i+1}/{min(len(paragraphs), 20)}):",
-                                    'content': paragraph,
-                                    'type': 'text',
-                                    'context': 'Custom Text'
-                                })
-                    
-                    # If still no items after filtering, create one with the entire text
-                    if not study_items:
-                        study_items = [{
-                            'id': str(uuid.uuid4()),
-                            'prompt': 'Type this text:',
-                            'content': text[:2000],  # Limit length for performance
-                            'type': 'text',
-                            'context': 'Custom Text'
-                        }]
-                    
-                    print(f"Extracted {len(study_items)} items from text file")
-                except Exception as e:
-                    print(f"Error processing text file: {str(e)}")
-                    # Fallback to simple text item
+                except UnicodeDecodeError:
+                    # Try alternate encoding
+                    with open(file_path, 'r', encoding='latin-1') as f:
+                        text = f.read()
+                
+                # Create multiple study items by splitting text into paragraphs
+                paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+                
+                # If no paragraphs found or text is very short, use the entire text as one item
+                if not paragraphs or len(text) < 100:
                     study_items = [{
                         'id': str(uuid.uuid4()),
                         'prompt': 'Type this text:',
-                        'content': 'Sample text for typing practice.',
+                        'content': text,
                         'type': 'text',
                         'context': 'Custom Text'
                     }]
+                else:
+                    # Limit to 20 paragraphs for performance
+                    for i, paragraph in enumerate(paragraphs[:20]):
+                        # Only use paragraphs with meaningful content
+                        if len(paragraph) > 10:
+                            study_items.append({
+                                'id': str(uuid.uuid4()),
+                                'prompt': f"Type this paragraph ({i+1}/{min(len(paragraphs), 20)}):",
+                                'content': paragraph,
+                                'type': 'text',
+                                'context': 'Custom Text'
+                            })
+                
+                # If still no items after filtering, create one with the entire text
+                if not study_items:
+                    study_items = [{
+                        'id': str(uuid.uuid4()),
+                        'prompt': 'Type this text:',
+                        'content': text[:2000],  # Limit length for performance
+                        'type': 'text',
+                        'context': 'Custom Text'
+                    }]
+                
+                print(f"Extracted {len(study_items)} items from text file")
             
             # Ensure we have at least one study item
             if not study_items:
@@ -162,19 +160,18 @@ def upload_file():
                 'filename': filename
             }
             
-            end_time = time.time()
-            print(f"File processing completed in {end_time - start_time:.2f} seconds")
-            
-            return jsonify({
+            result = {
                 'session_id': session_id,
                 'filename': filename,
-                'items_count': len(study_items),
-                'processing_time_ms': int((end_time - start_time) * 1000)
-            })
+                'items_count': len(study_items)
+            }
+            print(f"Session created successfully: {result}")
+            return jsonify(result)
         except Exception as e:
             print(f"Error during upload process: {str(e)}")
             return jsonify({'error': f'Server error during upload: {str(e)}'}), 500
     
+    print(f"Invalid file type: {file.filename}")
     return jsonify({'error': 'Invalid file type'}), 400
 
 @app.route('/api/quickstart', methods=['GET'])
@@ -322,6 +319,17 @@ def submit_answer(session_id):
         print(f"Error submitting answer: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint to verify the server is running"""
+    return jsonify({
+        'status': 'ok',
+        'version': '1.0',
+        'upload_folder': UPLOAD_FOLDER,
+        'upload_folder_exists': os.path.exists(UPLOAD_FOLDER),
+        'timestamp': time.time()
+    })
+
 # Serve React app
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -338,4 +346,4 @@ def handle_exception(e):
     return jsonify({'error': 'An unexpected error occurred'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5002)
