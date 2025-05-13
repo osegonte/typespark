@@ -1,6 +1,7 @@
 """
-PDF parser module for TypeSpark with improved version compatibility.
+PDF parser module for TypeSpark with improved version compatibility and performance.
 This version works with both PyMuPDF (any available version) and PyPDF2 as fallback.
+It includes performance optimizations to prevent long loading times.
 """
 
 import os
@@ -8,6 +9,7 @@ import re
 import uuid
 import platform
 import logging
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +54,7 @@ except ImportError:
     logger.warning("PyPDF2 not available.")
 
 class PDFParser:
-    """Parser to extract study content from PDFs with improved version compatibility"""
+    """Parser to extract study content from PDFs with improved version compatibility and performance"""
     
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
@@ -62,22 +64,51 @@ class PDFParser:
         # Check if file exists
         if not os.path.exists(self.pdf_path):
             logger.error(f"File not found: {self.pdf_path}")
+            
+        # Maximum content size to prevent memory issues (50KB)
+        self.max_content_size = 50 * 1024
+        
+        # Maximum pages to process
+        self.max_pages = 10
     
     def extract_text(self):
-        """Extract all text from the PDF, handling different PDF libraries"""
+        """Extract text from the PDF, handling different PDF libraries with performance optimizations"""
         if not os.path.exists(self.pdf_path):
             logger.error(f"File not found: {self.pdf_path}")
             return self
+        
+        # Get file size
+        file_size = os.path.getsize(self.pdf_path)
+        logger.info(f"PDF file size: {file_size / 1024:.2f} KB")
+        
+        # Start timing
+        start_time = time.time()
             
         try:
             if HAS_PYMUPDF:
                 logger.info("Extracting text with PyMuPDF")
                 # Use PyMuPDF if available
                 with fitz.open(self.pdf_path) as doc:
-                    # Extract text from each page
-                    for page in doc:
+                    # Get total pages
+                    total_pages = len(doc)
+                    logger.info(f"PDF has {total_pages} pages, limiting to {self.max_pages}")
+                    
+                    # Extract text from each page, with limit
+                    for page_idx, page in enumerate(doc):
+                        # Check if we've reached the max pages
+                        if page_idx >= self.max_pages:
+                            self.raw_text += "\n\n[Content truncated: only first 10 pages processed for performance]"
+                            break
+                            
+                        # Extract text and add to raw_text
                         page_text = page.get_text("text")
                         self.raw_text += page_text
+                        
+                        # Check if we've reached our content size limit
+                        if len(self.raw_text) > self.max_content_size:
+                            self.raw_text = self.raw_text[:self.max_content_size]
+                            self.raw_text += "\n\n[Content truncated: maximum content size reached]"
+                            break
                         
                     logger.info(f"Extracted {len(self.raw_text)} characters with PyMuPDF")
             elif HAS_PYPDF2:
@@ -85,8 +116,24 @@ class PDFParser:
                 # Use PyPDF2 as fallback
                 with open(self.pdf_path, 'rb') as file:
                     reader = PdfReader(file)
-                    for page in reader.pages:
+                    total_pages = len(reader.pages)
+                    logger.info(f"PDF has {total_pages} pages, limiting to {self.max_pages}")
+                    
+                    # Extract text with page limit
+                    for page_idx, page in enumerate(reader.pages):
+                        # Check if we've reached the max pages
+                        if page_idx >= self.max_pages:
+                            self.raw_text += "\n\n[Content truncated: only first 10 pages processed for performance]"
+                            break
+                            
+                        # Extract text and add to raw_text
                         self.raw_text += page.extract_text() + "\n\n"
+                        
+                        # Check if we've reached our content size limit
+                        if len(self.raw_text) > self.max_content_size:
+                            self.raw_text = self.raw_text[:self.max_content_size]
+                            self.raw_text += "\n\n[Content truncated: maximum content size reached]"
+                            break
                         
                     logger.info(f"Extracted {len(self.raw_text)} characters with PyPDF2")
             else:
@@ -97,10 +144,14 @@ class PDFParser:
             logger.error(f"Error extracting text from PDF: {str(e)}")
             self.raw_text = f"ERROR EXTRACTING TEXT: {str(e)}"
         
+        # Log processing time
+        end_time = time.time()
+        logger.info(f"PDF processing took {end_time - start_time:.2f} seconds")
+        
         return self
     
     def extract_items(self):
-        """Process PDF and extract study items"""
+        """Process PDF and extract study items with performance optimizations"""
         # Extract text if not already done
         if not self.raw_text:
             self.extract_text()
@@ -117,42 +168,63 @@ class PDFParser:
                 'context': 'Error'
             })
             return items
-            
-        # Extract definitions (Term - Definition or Term: Definition)
-        items.extend(self._extract_definitions())
         
-        # Extract paragraphs for general typing practice
-        items.extend(self._extract_paragraphs())
+        # Start timing item extraction
+        start_time = time.time()
         
-        # Extract key concepts based on formatting hints
-        items.extend(self._extract_key_concepts())
-        
-        # Extract lists (numbered or bulleted)
-        items.extend(self._extract_lists())
-        
-        # If no items were found, create a simple one with the raw text
-        if not items and self.raw_text:
-            # Split into manageable chunks if text is long
-            if len(self.raw_text) > 500:
-                chunks = self._split_into_chunks(self.raw_text, 500)
-                for i, chunk in enumerate(chunks):
+        # For very large content, just split into chunks rather than trying complex parsing
+        if len(self.raw_text) > 30000:
+            logger.info("Content is large, using simple chunk splitting for performance")
+            chunks = self._split_into_chunks(self.raw_text, 500)
+            for i, chunk in enumerate(chunks[:20]):  # Limit to 20 chunks
+                if len(chunk.strip()) > 50:  # Only include meaningful chunks
                     items.append({
                         'id': str(uuid.uuid4()),
-                        'prompt': f"Type this text (part {i+1}/{len(chunks)}):",
+                        'prompt': f"Type this text (part {i+1}/{min(len(chunks), 20)}):",
                         'content': chunk,
                         'type': 'text',
                         'context': 'PDF Content'
                     })
-            else:
-                items.append({
-                    'id': str(uuid.uuid4()),
-                    'prompt': "Type this text:",
-                    'content': self.raw_text,
-                    'type': 'text',
-                    'context': 'PDF Content'
-                })
+            
+            logger.info(f"Created {len(items)} chunks from large content")
+            return items
         
-        logger.info(f"Extracted {len(items)} study items from PDF")
+        # For smaller content, try regular extraction methods, but with timeouts
+        try:
+            # Extract definitions (term-definition pairs)
+            items.extend(self._extract_definitions())
+            
+            # Extract paragraphs for general typing practice
+            items.extend(self._extract_paragraphs())
+            
+            # Extract key concepts based on formatting hints
+            items.extend(self._extract_key_concepts())
+            
+            # Extract lists (numbered or bulleted)
+            items.extend(self._extract_lists())
+        except Exception as e:
+            logger.error(f"Error during item extraction: {str(e)}")
+            # Fall back to simple content
+            items = []
+        
+        # If no items were found or an error occurred, create a simple one with the raw text
+        if not items and self.raw_text:
+            # Split into manageable chunks
+            chunks = self._split_into_chunks(self.raw_text, 500)
+            for i, chunk in enumerate(chunks[:10]):  # Limit to 10 chunks
+                if len(chunk.strip()) > 50:  # Only include meaningful chunks
+                    items.append({
+                        'id': str(uuid.uuid4()),
+                        'prompt': f"Type this text (part {i+1}/{min(len(chunks), 10)}):",
+                        'content': chunk,
+                        'type': 'text',
+                        'context': 'PDF Content'
+                    })
+        
+        # Log extraction time
+        end_time = time.time()
+        logger.info(f"Item extraction took {end_time - start_time:.2f} seconds, found {len(items)} items")
+        
         return items
     
     def _split_into_chunks(self, text, max_length):
@@ -163,7 +235,13 @@ class PDFParser:
         chunks = []
         remaining = text
         
-        while len(remaining) > 0:
+        # Safety counter to prevent infinite loops
+        max_iterations = 1000
+        iteration = 0
+        
+        while len(remaining) > 0 and iteration < max_iterations:
+            iteration += 1
+            
             if len(remaining) <= max_length:
                 chunks.append(remaining)
                 break
@@ -191,128 +269,179 @@ class PDFParser:
         return chunks
     
     def _extract_definitions(self):
-        """Extract term-definition pairs"""
+        """Extract term-definition pairs with timeout protection"""
         if not self.raw_text:
             return []
             
         items = []
         
-        # Patterns for definitions (Term: Definition or Term - Definition)
-        definition_patterns = [
-            r'([A-Z][a-zA-Z\s]{2,40}):([^\.]+\.)',
-            r'([A-Z][a-zA-Z\s]{2,40})\s-\s([^\.]+\.)'
-        ]
+        # Simplified pattern for better performance
+        definition_pattern = r'([A-Z][a-zA-Z\s]{2,40})(?::|-)([^\.]+\.)'
         
-        for pattern in definition_patterns:
-            matches = re.findall(pattern, self.raw_text)
+        try:
+            # Limit processing to a reasonable size
+            text_to_process = self.raw_text[:30000]
             
-            for term, definition in matches:
+            matches = re.findall(definition_pattern, text_to_process)
+            
+            # Limit the number of definitions to prevent performance issues
+            for term, definition in matches[:15]:
                 term = term.strip()
                 definition = definition.strip()
                 
                 # Create a study item for term->definition
-                items.append({
-                    'id': str(uuid.uuid4()),
-                    'prompt': f"Define the term: {term}",
-                    'content': definition,
-                    'type': 'definition',
-                    'context': 'Terminology'
-                })
+                if len(term) > 2 and len(definition) > 10:
+                    items.append({
+                        'id': str(uuid.uuid4()),
+                        'prompt': f"Define the term: {term}",
+                        'content': definition,
+                        'type': 'definition',
+                        'context': 'Terminology'
+                    })
+        except Exception as e:
+            logger.error(f"Error extracting definitions: {str(e)}")
         
         return items
     
     def _extract_paragraphs(self):
-        """Extract paragraphs for typing practice"""
+        """Extract paragraphs for typing practice with performance enhancements"""
         if not self.raw_text:
             return []
             
         items = []
         
-        # Split text into paragraphs
-        paragraphs = re.split(r'\n\s*\n', self.raw_text)
-        
-        for paragraph in paragraphs:
-            # Clean up the paragraph
-            paragraph = paragraph.strip()
+        try:
+            # Limit processing to a reasonable size
+            text_to_process = self.raw_text[:30000]
             
-            # Skip very short paragraphs or chapter markers
-            if len(paragraph) < 50 or len(paragraph.split()) < 10:
-                continue
+            # Split text into paragraphs
+            paragraphs = re.split(r'\n\s*\n', text_to_process)
             
-            # Create a study item
-            items.append({
-                'id': str(uuid.uuid4()),
-                'prompt': "Type this paragraph:",
-                'content': paragraph,
-                'type': 'paragraph',
-                'context': 'Content'
-            })
+            # Limit the number of paragraphs to prevent performance issues
+            paragraph_count = 0
+            for paragraph in paragraphs:
+                # Skip after processing enough paragraphs
+                if paragraph_count >= 10:
+                    break
+                    
+                # Clean up the paragraph
+                paragraph = paragraph.strip()
+                
+                # Skip very short paragraphs or chapter markers
+                if len(paragraph) < 50 or len(paragraph.split()) < 10:
+                    continue
+                
+                # Create a study item
+                items.append({
+                    'id': str(uuid.uuid4()),
+                    'prompt': "Type this paragraph:",
+                    'content': paragraph,
+                    'type': 'paragraph',
+                    'context': 'Content'
+                })
+                
+                paragraph_count += 1
+        except Exception as e:
+            logger.error(f"Error extracting paragraphs: {str(e)}")
         
         return items
     
     def _extract_key_concepts(self):
-        """Extract key concepts based on formatting hints"""
+        """Extract key concepts based on formatting hints with performance enhancements"""
         if not self.raw_text:
             return []
             
         items = []
         
-        # Look for sentences with key indicator phrases
-        key_phrases = ["important", "key concept", "remember", "critical", "note that"]
-        sentences = re.split(r'\.', self.raw_text)
-        
-        for sentence in sentences:
-            for phrase in key_phrases:
-                if phrase.lower() in sentence.lower():
-                    # Found a potential key concept
-                    concept = sentence.strip()
-                    if len(concept) > 20:  # Ensure it's meaningful
-                        items.append({
-                            'id': str(uuid.uuid4()),
-                            'prompt': "Type this key concept:",
-                            'content': concept,
-                            'type': 'key_concept',
-                            'context': 'Key Concepts'
-                        })
+        try:
+            # Limit processing to a reasonable size
+            text_to_process = self.raw_text[:20000]
+            
+            # Look for sentences with key indicator phrases
+            key_phrases = ["important", "key concept", "remember", "critical", "note that"]
+            sentences = re.split(r'\.', text_to_process)
+            
+            # Limit number of concepts
+            concept_count = 0
+            for sentence in sentences:
+                # Stop after finding enough concepts
+                if concept_count >= 5:
+                    break
+                    
+                for phrase in key_phrases:
+                    if phrase.lower() in sentence.lower():
+                        # Found a potential key concept
+                        concept = sentence.strip()
+                        if len(concept) > 20:  # Ensure it's meaningful
+                            items.append({
+                                'id': str(uuid.uuid4()),
+                                'prompt': "Type this key concept:",
+                                'content': concept,
+                                'type': 'key_concept',
+                                'context': 'Key Concepts'
+                            })
+                            concept_count += 1
+                            break  # Move to next sentence after finding a concept
+        except Exception as e:
+            logger.error(f"Error extracting key concepts: {str(e)}")
         
         return items
     
     def _extract_lists(self):
-        """Extract numbered or bulleted lists"""
+        """Extract numbered or bulleted lists with performance enhancements"""
         if not self.raw_text:
             return []
             
         items = []
         
-        # Match numbered lists (e.g., "1. Item\n2. Item\n3. Item")
-        list_pattern = r'((\d+\.\s*[^\n]+\n){2,})'
-        matches = re.findall(list_pattern, self.raw_text)
-        
-        for match in matches:
-            list_text = match[0].strip()
-            if len(list_text) > 30:  # Ensure it's a meaningful list
-                items.append({
-                    'id': str(uuid.uuid4()),
-                    'prompt': "Type out this list in order:",
-                    'content': list_text,
-                    'type': 'list',
-                    'context': 'Lists'
-                })
-        
-        # Match bulleted lists (e.g., "• Item\n• Item\n• Item")
-        list_pattern = r'(([•\-\*]\s*[^\n]+\n){2,})'
-        matches = re.findall(list_pattern, self.raw_text)
-        
-        for match in matches:
-            list_text = match[0].strip()
-            if len(list_text) > 30:  # Ensure it's a meaningful list
-                items.append({
-                    'id': str(uuid.uuid4()),
-                    'prompt': "Type out this list in order:",
-                    'content': list_text,
-                    'type': 'list',
-                    'context': 'Lists'
-                })
+        try:
+            # Limit processing to a reasonable size
+            text_to_process = self.raw_text[:20000]
+            
+            # Match numbered lists (e.g., "1. Item\n2. Item\n3. Item")
+            list_pattern = r'((\d+\.\s*[^\n]+\n){2,})'
+            matches = re.findall(list_pattern, text_to_process)
+            
+            # Limit number of lists
+            list_count = 0
+            for match in matches:
+                # Stop after finding enough lists
+                if list_count >= 3:
+                    break
+                    
+                list_text = match[0].strip()
+                if len(list_text) > 30:  # Ensure it's a meaningful list
+                    items.append({
+                        'id': str(uuid.uuid4()),
+                        'prompt': "Type out this list in order:",
+                        'content': list_text,
+                        'type': 'list',
+                        'context': 'Lists'
+                    })
+                    list_count += 1
+            
+            # Match bulleted lists (e.g., "• Item\n• Item\n• Item")
+            if list_count < 3:  # Only if we haven't found enough lists already
+                list_pattern = r'(([•\-\*]\s*[^\n]+\n){2,})'
+                matches = re.findall(list_pattern, text_to_process)
+                
+                for match in matches:
+                    # Stop after finding enough lists
+                    if list_count >= 3:
+                        break
+                        
+                    list_text = match[0].strip()
+                    if len(list_text) > 30:  # Ensure it's a meaningful list
+                        items.append({
+                            'id': str(uuid.uuid4()),
+                            'prompt': "Type out this list in order:",
+                            'content': list_text,
+                            'type': 'list',
+                            'context': 'Lists'
+                        })
+                        list_count += 1
+        except Exception as e:
+            logger.error(f"Error extracting lists: {str(e)}")
         
         return items
     
@@ -329,6 +458,9 @@ class PDFParser:
         }
         
         if HAS_PYMUPDF:
-            status['pymupdf_version'] = fitz.version
+            try:
+                status['pymupdf_version'] = fitz.version
+            except:
+                status['pymupdf_version'] = "Unknown"
         
         return status

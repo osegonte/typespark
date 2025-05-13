@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, RefreshCw, AlertCircle } from 'lucide-react';
+import { Upload, FileText, RefreshCw, AlertCircle, ZapIcon, Zap } from 'lucide-react';
 import axios from 'axios';
 
 // Configure API URL
 const API_URL = 'http://localhost:5001/api';
 
-// Configure Axios with defaults
+// Configure Axios with defaults and timeout
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 60000 // 60 second timeout for long operations
 });
 
 function HomePage({ setSessionData }) {
@@ -19,17 +20,25 @@ function HomePage({ setSessionData }) {
   const [file, setFile] = useState(null);
   const [customText, setCustomText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [processingTime, setProcessingTime] = useState(null);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
   // Handle file selection
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
+    
+    // Size check (client-side validation)
+    if (selectedFile && selectedFile.size > 10 * 1024 * 1024) { // 10MB
+      setError('File too large. Maximum size is 10MB.');
+      return;
+    }
+    
     setFile(selectedFile);
     setError(''); // Clear any previous errors
   };
 
-  // Handle file upload
+  // Handle file upload with improved error handling
   const handleUpload = async () => {
     if (!file) {
       setError('Please select a file to upload');
@@ -38,18 +47,27 @@ function HomePage({ setSessionData }) {
 
     setIsLoading(true);
     setError('');
+    setProcessingTime(null);
 
     const formData = new FormData();
     formData.append('file', file);
 
     try {
+      const startTime = Date.now();
+      
       const response = await fetch(`${API_URL}/upload`, {
         method: 'POST',
         body: formData,
+        // Set a longer timeout for PDF processing
+        signal: AbortSignal.timeout(60000) // 60 second timeout
       });
       
+      const endTime = Date.now();
+      setProcessingTime(endTime - startTime);
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
       }
       
       const data = await response.json();
@@ -64,7 +82,11 @@ function HomePage({ setSessionData }) {
       }
     } catch (err) {
       console.error('Upload error:', err);
-      setError(err.message || 'An error occurred during upload');
+      if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+        setError('The request took too long. Please try a smaller file or use the Quick Start option.');
+      } else {
+        setError(err.message || 'An error occurred during upload');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -81,14 +103,19 @@ function HomePage({ setSessionData }) {
     setError('');
 
     try {
+      // Limit text length for performance
+      const limitedText = customText.length > 20000 
+        ? customText.substring(0, 20000) + '\n\n(Text truncated to 20,000 characters for performance)'
+        : customText;
+      
       // Format text to ensure paragraphs
-      const formattedText = customText
+      const formattedText = limitedText
         .split('\n')
         .map(line => line.trim())
         .join('\n')
         .replace(/\n{3,}/g, '\n\n'); // Replace 3+ newlines with 2
 
-      console.log('Formatted text:', formattedText);
+      console.log('Formatted text length:', formattedText.length);
 
       // Create a text file from the custom text
       const blob = new Blob([formattedText], { type: 'text/plain' });
@@ -102,10 +129,12 @@ function HomePage({ setSessionData }) {
       const response = await fetch(`${API_URL}/upload`, {
         method: 'POST',
         body: formData,
+        signal: AbortSignal.timeout(30000) // 30 second timeout
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
       }
       
       const data = await response.json();
@@ -120,7 +149,42 @@ function HomePage({ setSessionData }) {
       }
     } catch (err) {
       console.error('Text upload error:', err);
-      setError(err.message || 'An error occurred during upload');
+      if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+        setError('The request took too long. Please try a smaller text or use the Quick Start option.');
+      } else {
+        setError(err.message || 'An error occurred during upload');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // New function for quick start option
+  const handleQuickStart = async () => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_URL}/quickstart`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Quick start response:', data);
+      
+      if (data && data.session_id) {
+        // Store session data and navigate to practice page
+        setSessionData(data);
+        navigate('/practice');
+      } else {
+        setError('Could not create quick start session.');
+      }
+    } catch (err) {
+      console.error('Quick start error:', err);
+      setError(err.message || 'An error occurred during quick start');
     } finally {
       setIsLoading(false);
     }
@@ -135,6 +199,29 @@ function HomePage({ setSessionData }) {
         </p>
       </div>
 
+      {/* Quick Start Button - NEW */}
+      <div className="mb-8 card p-6 text-center">
+        <h2 className="text-xl font-semibold mb-4 flex items-center justify-center">
+          <Zap className="mr-2 text-yellow-500" size={24} />
+          Quick Start
+        </h2>
+        <p className="mb-4 text-light-text-secondary dark:text-text-secondary">
+          Start practicing immediately with pre-loaded sample text
+        </p>
+        <button 
+          className="btn bg-yellow-500 hover:bg-yellow-600 text-white max-w-md mx-auto"
+          onClick={handleQuickStart}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center">
+              <RefreshCw className="animate-spin mr-2" size={16} />
+              <span>Loading...</span>
+            </div>
+          ) : 'Start Quick Practice'}
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left Panel - Upload Learning Material */}
         <div className="card">
@@ -142,8 +229,11 @@ function HomePage({ setSessionData }) {
             <Upload className="mr-2" size={20} />
             Upload Learning Material
           </h2>
-          <p className="text-light-text-secondary dark:text-text-secondary mb-6">
+          <p className="text-light-text-secondary dark:text-text-secondary mb-2">
             Upload a text or PDF file to practice with
+          </p>
+          <p className="text-xs text-orange-600 dark:text-orange-400 mb-4">
+            Note: Large PDFs may take longer to process. Limit to 10MB or 10 pages for best performance.
           </p>
 
           <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-8 text-center">
@@ -160,7 +250,7 @@ function HomePage({ setSessionData }) {
             >
               <Upload size={40} className="text-gray-500 mb-3" />
               <p>Drag and drop your file here or click to browse</p>
-              {file && <p className="mt-3 text-accent-blue">{file.name}</p>}
+              {file && <p className="mt-3 text-accent-blue">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>}
             </label>
           </div>
 
@@ -196,10 +286,6 @@ function HomePage({ setSessionData }) {
               setCustomText(e.target.value);
               setError(''); // Clear any previous errors
             }}
-            onPaste={(e) => {
-              console.log('Text pasted');
-              // No need to prevent default, just for logging
-            }}
           ></textarea>
 
           <button 
@@ -216,6 +302,13 @@ function HomePage({ setSessionData }) {
           </button>
         </div>
       </div>
+
+      {/* Processing Time Information */}
+      {processingTime && (
+        <div className="mt-4 p-3 bg-green-100 dark:bg-green-900/30 border border-green-500 text-green-700 dark:text-green-200 rounded">
+          <p className="text-sm">File processed in {(processingTime / 1000).toFixed(1)} seconds</p>
+        </div>
+      )}
 
       {/* Why TypeSpark Section */}
       <div className="mt-16 card">
@@ -245,10 +338,19 @@ function HomePage({ setSessionData }) {
         </div>
       </div>
 
+      {/* Error Display */}
       {error && (
         <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 border border-red-500 text-red-700 dark:text-red-200 rounded flex items-start">
           <AlertCircle size={20} className="mr-2 flex-shrink-0 mt-0.5" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="mt-4 p-3 bg-blue-100 dark:bg-blue-900/30 border border-blue-500 text-blue-700 dark:text-blue-200 rounded flex items-start">
+          <RefreshCw className="animate-spin mr-2 flex-shrink-0 mt-0.5" size={20} />
+          <span>Processing your content... This may take up to 30 seconds for large files.</span>
         </div>
       )}
     </div>

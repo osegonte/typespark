@@ -3,12 +3,14 @@ from flask_cors import CORS
 import os
 import json
 import uuid
+import time
 from werkzeug.utils import secure_filename
 from pdf_parser import PDFParser
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'txt'}
+MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB limit
 
 app = Flask(__name__, static_folder='../frontend/build')
 
@@ -16,8 +18,8 @@ app = Flask(__name__, static_folder='../frontend/build')
 CORS(app, 
      resources={r"/api/*": {"origins": "*"}}, 
      supports_credentials=True,
-     methods=["GET", "POST", "OPTIONS"],
-     allow_headers=["Content-Type"])
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"])
 
 # Import diagnostic routes and register them
 try:
@@ -44,10 +46,13 @@ def allowed_file(filename):
 
 @app.route('/api/upload', methods=['POST', 'OPTIONS'])
 def upload_file():
-    """Handle file upload and process it for study content"""
+    """Handle file upload and process it for study content with better error handling"""
     # Handle pre-flight OPTIONS request
     if request.method == 'OPTIONS':
         return '', 200
+    
+    start_time = time.time()
+    print(f"Starting file upload at {start_time}")
         
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
@@ -55,6 +60,14 @@ def upload_file():
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
+    
+    # Check file size
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)  # Reset file pointer
+    
+    if file_size > MAX_CONTENT_SIZE:
+        return jsonify({'error': f'File too large. Maximum size is {MAX_CONTENT_SIZE/1024/1024}MB'}), 413
         
     if file and allowed_file(file.filename):
         try:
@@ -62,13 +75,18 @@ def upload_file():
             file_path = os.path.join(UPLOAD_FOLDER, filename)
             file.save(file_path)
             
+            print(f"File saved to {file_path}, size: {file_size/1024:.2f}KB")
+            
             # Process the file based on type
             study_items = []
             if filename.lower().endswith('.pdf'):
+                print("Processing PDF file...")
                 parser = PDFParser(file_path)
                 study_items = parser.extract_items()
+                print(f"Extracted {len(study_items)} items from PDF")
             else:
                 # For text files, use a more robust parser
+                print("Processing text file...")
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         text = f.read()
@@ -86,12 +104,13 @@ def upload_file():
                             'context': 'Custom Text'
                         }]
                     else:
-                        for i, paragraph in enumerate(paragraphs):
+                        # Limit to 20 paragraphs for performance
+                        for i, paragraph in enumerate(paragraphs[:20]):
                             # Only use paragraphs with meaningful content
                             if len(paragraph) > 10:
                                 study_items.append({
                                     'id': str(uuid.uuid4()),
-                                    'prompt': f"Type this paragraph ({i+1}/{len(paragraphs)}):",
+                                    'prompt': f"Type this paragraph ({i+1}/{min(len(paragraphs), 20)}):",
                                     'content': paragraph,
                                     'type': 'text',
                                     'context': 'Custom Text'
@@ -102,10 +121,12 @@ def upload_file():
                         study_items = [{
                             'id': str(uuid.uuid4()),
                             'prompt': 'Type this text:',
-                            'content': text,
+                            'content': text[:2000],  # Limit length for performance
                             'type': 'text',
                             'context': 'Custom Text'
                         }]
+                    
+                    print(f"Extracted {len(study_items)} items from text file")
                 except Exception as e:
                     print(f"Error processing text file: {str(e)}")
                     # Fallback to simple text item
@@ -126,6 +147,11 @@ def upload_file():
                     'type': 'text',
                     'context': 'Sample'
                 }]
+            
+            # Ensure item content isn't too long (for performance)
+            for item in study_items:
+                if len(item['content']) > 1000:
+                    item['content'] = item['content'][:1000] + '... (content truncated for performance)'
                 
             # Create a session for this content
             session_id = str(uuid.uuid4())
@@ -136,16 +162,67 @@ def upload_file():
                 'filename': filename
             }
             
+            end_time = time.time()
+            print(f"File processing completed in {end_time - start_time:.2f} seconds")
+            
             return jsonify({
                 'session_id': session_id,
                 'filename': filename,
-                'items_count': len(study_items)
+                'items_count': len(study_items),
+                'processing_time_ms': int((end_time - start_time) * 1000)
             })
         except Exception as e:
             print(f"Error during upload process: {str(e)}")
             return jsonify({'error': f'Server error during upload: {str(e)}'}), 500
     
     return jsonify({'error': 'Invalid file type'}), 400
+
+@app.route('/api/quickstart', methods=['GET'])
+def quickstart():
+    """Create a quick start session without file upload"""
+    try:
+        # Create sample study items
+        study_items = [
+            {
+                'id': str(uuid.uuid4()),
+                'prompt': 'Type this paragraph:',
+                'content': 'The quick brown fox jumps over the lazy dog. This is a simple sentence for testing typing speed without needing to upload a file.',
+                'type': 'text',
+                'context': 'Quick Start'
+            },
+            {
+                'id': str(uuid.uuid4()),
+                'prompt': 'Type this paragraph:',
+                'content': 'TypeSpark is a typing practice application designed to help you improve your typing skills while studying content from your documents.',
+                'type': 'text',
+                'context': 'Quick Start'
+            },
+            {
+                'id': str(uuid.uuid4()),
+                'prompt': 'Type this paragraph:',
+                'content': 'Practice makes perfect. The more you type, the faster and more accurate you will become. Try to focus on accuracy first, then speed.',
+                'type': 'text',
+                'context': 'Quick Start'
+            }
+        ]
+        
+        # Create a session
+        session_id = str(uuid.uuid4())
+        sessions[session_id] = {
+            'items': study_items,
+            'current_index': 0,
+            'total_items': len(study_items),
+            'filename': 'quickstart.txt'
+        }
+        
+        return jsonify({
+            'session_id': session_id,
+            'filename': 'quickstart.txt',
+            'items_count': len(study_items)
+        })
+    except Exception as e:
+        print(f"Error creating quick start session: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/api/session/<session_id>', methods=['GET'])
 def get_session(session_id):
@@ -214,8 +291,10 @@ def submit_answer(session_id):
         
         # Calculate accuracy
         expected = item['content']
-        matches = sum(1 for a, b in zip(user_answer, expected) if a == b)
-        accuracy = matches / max(len(expected), 1) if expected else 0
+        # Limit comparison length for performance
+        max_compare_length = min(len(expected), len(user_answer), 1000)
+        matches = sum(1 for a, b in zip(user_answer[:max_compare_length], expected[:max_compare_length]) if a == b)
+        accuracy = matches / max(len(expected[:max_compare_length]), 1) if expected else 0
         
         # Calculate WPM (words per minute)
         time_taken = data.get('time_taken', 60)  # Default to 60 seconds if not provided
