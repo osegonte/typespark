@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock, ArrowRight, Home, AlertCircle } from 'lucide-react';
 import statsStorage from '../services/statsStorage';
+import DebugInfo from '../DebugInfo';
 
 const API_URL = 'http://localhost:5002/api';
 
@@ -17,6 +18,7 @@ function PracticePage({ sessionData }) {
   const [stats, setStats] = useState({ wpm: 0, accuracy: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showDebug, setShowDebug] = useState(false);
   
   // Refs
   const inputRef = useRef(null);
@@ -25,6 +27,19 @@ function PracticePage({ sessionData }) {
   const sessionProcessed = useRef(false);
   const isUnmounted = useRef(false);
   const isLoadingRef = useRef(true);
+
+  // Toggle debug panel with keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl+Shift+D to toggle debug panel
+      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        setShowDebug(prev => !prev);
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Clean up on unmount
   useEffect(() => {
@@ -54,6 +69,11 @@ function PracticePage({ sessionData }) {
     }
   }, []);
 
+  // Log session data for debugging
+  useEffect(() => {
+    console.log("Session Data:", sessionData);
+  }, [sessionData]);
+
   // Load next item from the session
   const loadNextItem = useCallback(async () => {
     // Prevent duplicate requests
@@ -68,11 +88,15 @@ function PracticePage({ sessionData }) {
     }
     
     try {
+      console.log("Loading next item for session:", sessionData?.session_id);
       const response = await fetch(`${API_URL}/session/${sessionData.session_id}/next`);
+      
+      console.log("Response status:", response.status);
       
       // Check for a successful response
       if (!response.ok) {
         const errorData = await response.json();
+        console.log("Error data:", errorData);
         
         // Handle case where there are no more items
         if (response.status === 400) {
@@ -106,6 +130,7 @@ function PracticePage({ sessionData }) {
       
       // Process the successful response
       const data = await response.json();
+      console.log("Next item data:", data);
       
       if (!isUnmounted.current) {
         setCurrentItem(data.item);
@@ -122,7 +147,7 @@ function PracticePage({ sessionData }) {
       
       if (!isUnmounted.current) {
         setLoading(false);
-        setError('Could not load practice item. Please try again.');
+        setError(`Could not load practice item: ${error.message}`);
       }
     } finally {
       isLoadingRef.current = false;
@@ -133,9 +158,12 @@ function PracticePage({ sessionData }) {
   useEffect(() => {
     // Redirect if no session data
     if (!sessionData || !sessionData.session_id) {
+      console.log("No session data, redirecting to home");
       navigate('/');
       return;
     }
+    
+    console.log("Initializing practice with session:", sessionData);
     
     // Reset flags
     isUnmounted.current = false;
@@ -289,6 +317,16 @@ function PracticePage({ sessionData }) {
           <Clock size={40} className="mx-auto text-accent-blue" />
         </div>
         <p>Loading practice session...</p>
+        
+        {/* Debug information */}
+        <button 
+          className="mt-4 px-3 py-1 bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-sm"
+          onClick={() => setShowDebug(prev => !prev)}
+        >
+          Show Debug Info
+        </button>
+        
+        {showDebug && <DebugInfo />}
       </div>
     );
   }
@@ -308,6 +346,16 @@ function PracticePage({ sessionData }) {
         >
           Back to Home
         </button>
+        
+        {/* Debug information */}
+        <button 
+          className="ml-4 mt-4 px-3 py-1 bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-sm"
+          onClick={() => setShowDebug(prev => !prev)}
+        >
+          Show Debug Info
+        </button>
+        
+        {showDebug && <DebugInfo />}
       </div>
     );
   }
@@ -317,12 +365,23 @@ function PracticePage({ sessionData }) {
     return (
       <div className="text-center py-12">
         <p>No practice session found. Start a new practice session from the home page.</p>
+        <p className="text-sm text-gray-500 mt-2">Session ID: {sessionData?.session_id || 'None'}</p>
         <button 
           className="btn btn-primary mt-4"
           onClick={() => navigate('/')}
         >
           Back to Home
         </button>
+        
+        {/* Debug information */}
+        <button 
+          className="ml-4 px-3 py-1 bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-sm"
+          onClick={() => setShowDebug(prev => !prev)}
+        >
+          Show Debug Info
+        </button>
+        
+        {showDebug && <DebugInfo />}
       </div>
     );
   }
@@ -453,6 +512,18 @@ function PracticePage({ sessionData }) {
           </>
         )}
       </div>
+      
+      {/* Debug button and information */}
+      <div className="text-center">
+        <button 
+          className="px-3 py-1 bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-sm"
+          onClick={() => setShowDebug(prev => !prev)}
+        >
+          {showDebug ? 'Hide' : 'Show'} Debug Info
+        </button>
+      </div>
+      
+      {showDebug && <DebugInfo />}
     </div>
   );
 }

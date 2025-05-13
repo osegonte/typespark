@@ -6,6 +6,7 @@ import uuid
 import time
 from werkzeug.utils import secure_filename
 from pdf_parser import PDFParser
+from flask import Flask, request, jsonify, send_from_directory, make_response
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -229,15 +230,27 @@ def get_session(session_id):
         
     return jsonify(sessions[session_id])
 
-@app.route('/api/session/<session_id>/next', methods=['GET'])
+@app.route('/api/session/<session_id>/next', methods=['GET', 'OPTIONS'])
 def get_next_item(session_id):
-    """Get the next study item from the session"""
+    """Get the next study item from the session with improved error handling"""
+    # Handle pre-flight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 200
+        
     try:
+        # Log the request for debugging
+        print(f"Next item request for session: {session_id}")
+        
         if session_id not in sessions:
+            print(f"Session not found: {session_id}")
+            print(f"Available sessions: {list(sessions.keys())}")
             return jsonify({'error': 'Session not found'}), 404
             
         session = sessions[session_id]
+        print(f"Session data: {session['current_index']}/{session['total_items']}")
+        
         if session['current_index'] >= session['total_items']:
+            print(f"No more items in session {session_id}")
             return jsonify({
                 'error': 'No more items in session',
                 'session_completed': True
@@ -245,6 +258,8 @@ def get_next_item(session_id):
             
         item = session['items'][session['current_index']]
         session['current_index'] += 1
+        
+        print(f"Returning item {session['current_index']}/{session['total_items']} for session {session_id}")
         
         return jsonify({
             'item': item,
@@ -255,6 +270,8 @@ def get_next_item(session_id):
         })
     except Exception as e:
         print(f"Error getting next item: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/api/session/<session_id>/submit', methods=['POST', 'OPTIONS'])
