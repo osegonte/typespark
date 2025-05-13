@@ -1,21 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, RefreshCw } from 'lucide-react';
+import { Upload, FileText, RefreshCw, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 
+// Configure API URL
 const API_URL = 'http://localhost:5001/api';
 
+// Configure Axios with defaults
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
 function HomePage({ setSessionData }) {
+  // State variables
   const [file, setFile] = useState(null);
   const [customText, setCustomText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
+  // Handle file selection
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selectedFile = e.target.files[0];
+    setFile(selectedFile);
+    setError(''); // Clear any previous errors
   };
 
+  // Handle file upload
   const handleUpload = async () => {
     if (!file) {
       setError('Please select a file to upload');
@@ -29,26 +43,34 @@ function HomePage({ setSessionData }) {
     formData.append('file', file);
 
     try {
-      const response = await axios.post(`${API_URL}/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+      const response = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        body: formData,
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Upload response:', data);
 
-      if (response.data && response.data.items_count > 0) {
-        setSessionData(response.data);
+      if (data && data.session_id) {
+        // Store session data and navigate to practice page
+        setSessionData(data);
         navigate('/practice');
       } else {
         setError('No content could be extracted from the file.');
       }
     } catch (err) {
       console.error('Upload error:', err);
-      setError(err.response?.data?.error || 'An error occurred during upload');
+      setError(err.message || 'An error occurred during upload');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Handle custom text submission
   const handleCustomTextSubmit = async () => {
     if (!customText.trim()) {
       setError('Please enter some text for practice');
@@ -66,6 +88,8 @@ function HomePage({ setSessionData }) {
         .join('\n')
         .replace(/\n{3,}/g, '\n\n'); // Replace 3+ newlines with 2
 
+      console.log('Formatted text:', formattedText);
+
       // Create a text file from the custom text
       const blob = new Blob([formattedText], { type: 'text/plain' });
       const textFile = new File([blob], 'custom-text.txt');
@@ -74,22 +98,29 @@ function HomePage({ setSessionData }) {
       const formData = new FormData();
       formData.append('file', textFile);
       
-      // Send the request
-      const response = await axios.post(`${API_URL}/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+      // Send the request using fetch instead of axios
+      const response = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        body: formData,
       });
       
-      if (response.data && response.data.items_count > 0) {
-        setSessionData(response.data);
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Custom text upload response:', data);
+      
+      if (data && data.session_id) {
+        // Store session data and navigate to practice page
+        setSessionData(data);
         navigate('/practice');
       } else {
         setError('No content could be extracted from the text.');
       }
     } catch (err) {
       console.error('Text upload error:', err);
-      setError(err.response?.data?.error || 'An error occurred during upload');
+      setError(err.message || 'An error occurred during upload');
     } finally {
       setIsLoading(false);
     }
@@ -161,7 +192,14 @@ function HomePage({ setSessionData }) {
             className="w-full h-48 bg-white dark:bg-darker-blue border border-gray-300 dark:border-gray-700 rounded-md p-4 focus:outline-none focus:ring-2 focus:ring-accent-blue"
             placeholder="Paste or type your practice text here..."
             value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
+            onChange={(e) => {
+              setCustomText(e.target.value);
+              setError(''); // Clear any previous errors
+            }}
+            onPaste={(e) => {
+              console.log('Text pasted');
+              // No need to prevent default, just for logging
+            }}
           ></textarea>
 
           <button 
@@ -208,8 +246,9 @@ function HomePage({ setSessionData }) {
       </div>
 
       {error && (
-        <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 border border-red-500 text-red-700 dark:text-red-200 rounded">
-          {error}
+        <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 border border-red-500 text-red-700 dark:text-red-200 rounded flex items-start">
+          <AlertCircle size={20} className="mr-2 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
         </div>
       )}
     </div>

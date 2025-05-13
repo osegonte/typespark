@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, ArrowRight, Home } from 'lucide-react';
-import axios from 'axios';
+import { Clock, ArrowRight, Home, AlertCircle } from 'lucide-react';
 import statsStorage from '../services/statsStorage';
 
 const API_URL = 'http://localhost:5001/api';
@@ -18,140 +17,229 @@ function PracticePage({ sessionData }) {
   const [stats, setStats] = useState({ wpm: 0, accuracy: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Refs
   const inputRef = useRef(null);
   const timerInterval = useRef(null);
   const startTime = useRef(null);
+  const sessionProcessed = useRef(false);
+  const isUnmounted = useRef(false);
+  const isLoadingRef = useRef(true);
 
-  // Redirect if no session data
+  // Clean up on unmount
   useEffect(() => {
-    if (!sessionData) {
-      navigate('/');
-      return;
-    }
-
-    // Load the first item
-    loadNextItem();
-
-    // Focus on input field
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-
     return () => {
-      // Cleanup timer
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
-      }
+      isUnmounted.current = true;
+      clearInterval(timerInterval.current);
     };
-  }, [sessionData, navigate]);
+  }, []);
 
-  const loadNextItem = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await axios.get(`${API_URL}/session/${sessionData.session_id}/next`);
-      setCurrentItem(response.data.item);
-      setProgress(response.data.progress);
-      setUserInput('');
-      setResults(null);
-      setPhase(1);
-      resetTimer();
-      startTimer();
-      setLoading(false);
-    } catch (error) {
-      console.error('Error loading next item:', error);
-      
-      // If no more items, show completion message and go to stats page
-      if (error.response?.status === 400) {
-        // Record the final session data if not already recorded
-        if (stats.wpm > 0) {
-          statsStorage.recordSession({
-            date: new Date().toISOString(),
-            duration: timer,
-            items: progress.current,
-            wpm: stats.wpm,
-            accuracy: stats.accuracy
-          });
-        }
-        
-        navigate('/stats');
-      } else {
-        // Display error message and provide option to go back
-        setLoading(false);
-        setError('Could not load practice item. Please try again.');
-      }
-    }
-  };
-
-  const startTimer = () => {
+  // Wrap timer functions in useCallback
+  const startTimer = useCallback(() => {
     setIsActive(true);
     startTime.current = Date.now();
     timerInterval.current = setInterval(() => {
-      setTimer(Math.floor((Date.now() - startTime.current) / 1000));
+      if (!isUnmounted.current) {
+        setTimer(Math.floor((Date.now() - startTime.current) / 1000));
+      }
     }, 1000);
-  };
+  }, []);
 
-  const resetTimer = () => {
+  const resetTimer = useCallback(() => {
     setIsActive(false);
     setTimer(0);
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
+      timerInterval.current = null;
     }
-  };
+  }, []);
 
-  const handleSubmit = async () => {
+  // Load next item from the session
+  const loadNextItem = useCallback(async () => {
+    // Prevent duplicate requests
+    if (isLoadingRef.current) {
+      return;
+    }
+    
+    isLoadingRef.current = true;
+    if (!isUnmounted.current) {
+      setLoading(true);
+      setError(null);
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/session/${sessionData.session_id}/next`);
+      
+      // Check for a successful response
+      if (!response.ok) {
+        const errorData = await response.json();
+        
+        // Handle case where there are no more items
+        if (response.status === 400) {
+          console.log('No more items, going to stats');
+          
+          // Record session stats if not already done
+          if (!sessionProcessed.current && stats.wpm > 0) {
+            sessionProcessed.current = true;
+            statsStorage.recordSession({
+              date: new Date().toISOString(),
+              duration: timer,
+              items: progress.current,
+              wpm: stats.wpm,
+              accuracy: stats.accuracy
+            });
+          }
+          
+          // Navigate to stats page after a brief delay
+          setTimeout(() => {
+            if (!isUnmounted.current) {
+              navigate('/stats');
+            }
+          }, 300);
+          
+          return;
+        }
+        
+        // Handle other errors
+        throw new Error(errorData.error || "Failed to load next item");
+      }
+      
+      // Process the successful response
+      const data = await response.json();
+      
+      if (!isUnmounted.current) {
+        setCurrentItem(data.item);
+        setProgress(data.progress);
+        setUserInput('');
+        setResults(null);
+        setPhase(1);
+        resetTimer();
+        startTimer();
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error('Error loading next item:', error);
+      
+      if (!isUnmounted.current) {
+        setLoading(false);
+        setError('Could not load practice item. Please try again.');
+      }
+    } finally {
+      isLoadingRef.current = false;
+    }
+  }, [sessionData, navigate, stats, timer, progress, resetTimer, startTimer]);
+
+  // Initialize the practice session
+  useEffect(() => {
+    // Redirect if no session data
+    if (!sessionData || !sessionData.session_id) {
+      navigate('/');
+      return;
+    }
+    
+    // Reset flags
+    isUnmounted.current = false;
+    sessionProcessed.current = false;
+    
+    // Load the first item
+    loadNextItem();
+    
+    // Focus on input field
+    setTimeout(() => {
+      if (inputRef.current && !isUnmounted.current) {
+        inputRef.current.focus();
+      }
+    }, 300);
+    
+    // Cleanup when unmounting
+    return () => {
+      isUnmounted.current = true;
+      if (timerInterval.current) {
+        clearInterval(timerInterval.current);
+      }
+    };
+  }, [sessionData, navigate, loadNextItem]);
+
+  // Handle submission of user's answer
+  const handleSubmit = useCallback(async () => {
+    // Prevent submission when not in input phase or when timer is inactive
+    if (phase !== 1 || !isActive) return;
+    
     // Stop timer
     setIsActive(false);
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
+      timerInterval.current = null;
     }
 
     try {
-      const response = await axios.post(`${API_URL}/session/${sessionData.session_id}/submit`, {
-        item_id: currentItem.id,
-        answer: userInput,
-        time_taken: timer
-      });
-
-      setResults(response.data.result);
-      setPhase(2);
-
-      // Calculate stats
-      const result = response.data.result;
-      const wpm = Math.round(result.wpm);
-      const accuracy = Math.round(result.accuracy * 100);
-      
-      setStats({
-        wpm: wpm,
-        accuracy: accuracy
+      // Submit the answer using fetch
+      const response = await fetch(`${API_URL}/session/${sessionData.session_id}/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          item_id: currentItem.id,
+          answer: userInput,
+          time_taken: timer
+        }),
       });
       
-      // Record session in stats storage if this is the last item or if user completes
-      if (response.data.progress.current >= response.data.progress.total) {
-        // Record the session
-        statsStorage.recordSession({
-          date: new Date().toISOString(),
-          duration: timer,
-          items: 1,
-          wpm: wpm,
-          accuracy: accuracy
-        });
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!isUnmounted.current) {
+        setResults(data.result);
+        setPhase(2);
+        
+        // Calculate stats
+        const result = data.result;
+        const wpm = Math.round(result.wpm);
+        const accuracy = Math.round(result.accuracy * 100);
+        
+        setStats({ wpm, accuracy });
+        
+        // Record session if this is the last item
+        if (data.progress.current >= data.progress.total) {
+          if (!sessionProcessed.current) {
+            sessionProcessed.current = true;
+            statsStorage.recordSession({
+              date: new Date().toISOString(),
+              duration: timer,
+              items: data.progress.current,
+              wpm: wpm,
+              accuracy: accuracy
+            });
+          }
+        }
       }
     } catch (error) {
       console.error('Error submitting answer:', error);
-      setError('Could not submit your answer. Please try again.');
+      
+      if (!isUnmounted.current) {
+        setError('Could not submit your answer. Please try again.');
+        setIsActive(true); // Re-enable typing
+        
+        // Restart the timer where it left off
+        startTimer();
+      }
     }
-  };
+  }, [currentItem, isActive, phase, sessionData, timer, userInput, startTimer]);
 
+  // Format time display (mm:ss)
   const formatTime = (seconds) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
   };
 
+  // Render character-by-character feedback
   const renderFeedback = () => {
-    if (!currentItem) return null;
+    if (!currentItem || !currentItem.content) return null;
 
     const content = currentItem.content;
     
@@ -159,7 +247,7 @@ function PracticePage({ sessionData }) {
       <div className="mt-4 h-8">
         {content && userInput && (
           <div className="flex space-x-1 overflow-x-auto pb-2">
-            {content.split('').map((char, index) => {
+            {content.split('').slice(0, 25).map((char, index) => {
               let bgColor = "bg-gray-200 dark:bg-gray-800";
               let textColor = "text-gray-600 dark:text-gray-400";
 
@@ -182,13 +270,19 @@ function PracticePage({ sessionData }) {
                 </div>
               );
             })}
+            {content.length > 25 && (
+              <div className="text-gray-500 ml-2 flex items-center">
+                ...
+              </div>
+            )}
           </div>
         )}
       </div>
     );
   };
 
-  if (loading) {
+  // Loading state
+  if (loading && !currentItem) {
     return (
       <div className="text-center py-12">
         <div className="animate-spin mb-4">
@@ -199,10 +293,12 @@ function PracticePage({ sessionData }) {
     );
   }
 
+  // Error state
   if (error) {
     return (
       <div className="text-center py-12">
-        <div className="text-red-500 mb-4">
+        <div className="text-red-500 mb-4 flex flex-col items-center">
+          <AlertCircle size={40} className="mb-2" />
           <p className="text-xl font-bold">Error</p>
           <p>{error}</p>
         </div>
@@ -216,6 +312,7 @@ function PracticePage({ sessionData }) {
     );
   }
 
+  // No session data
   if (!sessionData || !currentItem) {
     return (
       <div className="text-center py-12">
@@ -230,6 +327,7 @@ function PracticePage({ sessionData }) {
     );
   }
 
+  // Main render - practice session
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-8">
@@ -271,7 +369,7 @@ function PracticePage({ sessionData }) {
           {currentItem.content}
         </div>
 
-        {/* User Input */}
+        {/* User Input - Phase 1 */}
         {phase === 1 ? (
           <>
             <div className="mb-4">
@@ -284,6 +382,12 @@ function PracticePage({ sessionData }) {
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
                 disabled={!isActive}
+                onKeyDown={(e) => {
+                  // Submit on Ctrl+Enter or Cmd+Enter
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    handleSubmit();
+                  }
+                }}
               ></textarea>
             </div>
 
@@ -293,7 +397,7 @@ function PracticePage({ sessionData }) {
               <button 
                 className="btn btn-primary"
                 onClick={handleSubmit}
-                disabled={!userInput.trim()}
+                disabled={!userInput.trim() || !isActive}
               >
                 Submit
               </button>
@@ -301,7 +405,7 @@ function PracticePage({ sessionData }) {
           </>
         ) : (
           <>
-            {/* Results */}
+            {/* Results - Phase 2 */}
             <div className="bg-gray-100 dark:bg-gray-900/30 rounded-md p-6 mb-6">
               <h3 className="text-lg font-semibold mb-4">Results</h3>
               
