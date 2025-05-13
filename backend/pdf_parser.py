@@ -1,7 +1,7 @@
 """
 PDF parser module for TypeSpark with improved version compatibility and performance.
-This version works with both PyMuPDF (any available version) and PyPDF2 as fallback.
-It includes performance optimizations to prevent long loading times.
+This version works with both PyMuPDF (fitz) and PyPDF2 as fallback.
+It includes critical performance optimizations to prevent long loading times.
 """
 
 import os
@@ -10,6 +10,7 @@ import uuid
 import platform
 import logging
 import time
+import traceback
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -59,17 +60,22 @@ class PDFParser:
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
         self.raw_text = ""
+        self.processing_time = 0
         logger.info(f"Initializing PDF parser for: {pdf_path}")
         
         # Check if file exists
         if not os.path.exists(self.pdf_path):
             logger.error(f"File not found: {self.pdf_path}")
+            return
             
         # Maximum content size to prevent memory issues (50KB)
         self.max_content_size = 50 * 1024
         
         # Maximum pages to process
         self.max_pages = 10
+        
+        # Processing timeout in seconds
+        self.timeout = 30
     
     def extract_text(self):
         """Extract text from the PDF, handling different PDF libraries with performance optimizations"""
@@ -83,70 +89,126 @@ class PDFParser:
         
         # Start timing
         start_time = time.time()
-            
+        
         try:
             if HAS_PYMUPDF:
                 logger.info("Extracting text with PyMuPDF")
-                # Use PyMuPDF if available
+                # Use PyMuPDF if available - the most efficient option
                 with fitz.open(self.pdf_path) as doc:
                     # Get total pages
                     total_pages = len(doc)
                     logger.info(f"PDF has {total_pages} pages, limiting to {self.max_pages}")
                     
-                    # Extract text from each page, with limit
+                    # Set up progress tracking
+                    page_count = 0
+                    total_text_size = 0
+                    timeout_reached = False
+                    
+                    # Extract text from each page, with limits
                     for page_idx, page in enumerate(doc):
+                        # Check processing time for timeout
+                        current_time = time.time()
+                        if current_time - start_time > self.timeout:
+                            logger.warning(f"Processing timeout reached after {self.timeout} seconds")
+                            self.raw_text += "\n\n[Processing timeout: document too complex]"
+                            timeout_reached = True
+                            break
+                            
                         # Check if we've reached the max pages
                         if page_idx >= self.max_pages:
                             self.raw_text += "\n\n[Content truncated: only first 10 pages processed for performance]"
                             break
                             
                         # Extract text and add to raw_text
-                        page_text = page.get_text("text")
-                        self.raw_text += page_text
-                        
+                        try:
+                            page_text = page.get_text("text")
+                            # Clean the text slightly - handle common issues
+                            page_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', page_text)
+                            self.raw_text += page_text
+                            page_count += 1
+                            total_text_size += len(page_text)
+                        except Exception as e:
+                            logger.error(f"Error processing page {page_idx}: {str(e)}")
+                            continue
+                            
                         # Check if we've reached our content size limit
                         if len(self.raw_text) > self.max_content_size:
                             self.raw_text = self.raw_text[:self.max_content_size]
                             self.raw_text += "\n\n[Content truncated: maximum content size reached]"
                             break
-                        
-                    logger.info(f"Extracted {len(self.raw_text)} characters with PyMuPDF")
+                            
+                        # Log progress periodically
+                        if page_idx % 5 == 0 and page_idx > 0:
+                            logger.info(f"Processed {page_idx} pages so far")
+                            
+                    if not timeout_reached:
+                        logger.info(f"Extracted {len(self.raw_text)} characters from {page_count} pages with PyMuPDF")
             elif HAS_PYPDF2:
                 logger.info("Extracting text with PyPDF2")
                 # Use PyPDF2 as fallback
                 with open(self.pdf_path, 'rb') as file:
-                    reader = PdfReader(file)
-                    total_pages = len(reader.pages)
-                    logger.info(f"PDF has {total_pages} pages, limiting to {self.max_pages}")
-                    
-                    # Extract text with page limit
-                    for page_idx, page in enumerate(reader.pages):
-                        # Check if we've reached the max pages
-                        if page_idx >= self.max_pages:
-                            self.raw_text += "\n\n[Content truncated: only first 10 pages processed for performance]"
-                            break
-                            
-                        # Extract text and add to raw_text
-                        self.raw_text += page.extract_text() + "\n\n"
+                    try:
+                        reader = PdfReader(file)
+                        total_pages = len(reader.pages)
+                        logger.info(f"PDF has {total_pages} pages, limiting to {self.max_pages}")
                         
-                        # Check if we've reached our content size limit
-                        if len(self.raw_text) > self.max_content_size:
-                            self.raw_text = self.raw_text[:self.max_content_size]
-                            self.raw_text += "\n\n[Content truncated: maximum content size reached]"
-                            break
+                        # Set up progress tracking
+                        page_count = 0
+                        timeout_reached = False
                         
-                    logger.info(f"Extracted {len(self.raw_text)} characters with PyPDF2")
+                        # Extract text with page limit
+                        for page_idx, page in enumerate(reader.pages):
+                            # Check processing time for timeout
+                            current_time = time.time()
+                            if current_time - start_time > self.timeout:
+                                logger.warning(f"Processing timeout reached after {self.timeout} seconds")
+                                self.raw_text += "\n\n[Processing timeout: document too complex]"
+                                timeout_reached = True
+                                break
+                                
+                            # Check if we've reached the max pages
+                            if page_idx >= self.max_pages:
+                                self.raw_text += "\n\n[Content truncated: only first 10 pages processed for performance]"
+                                break
+                                
+                            # Extract text and add to raw_text
+                            try:
+                                page_text = page.extract_text()
+                                # Clean the text slightly
+                                if page_text:
+                                    page_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', page_text)
+                                    self.raw_text += page_text + "\n\n"
+                                    page_count += 1
+                            except Exception as e:
+                                logger.error(f"Error processing page {page_idx}: {str(e)}")
+                                continue
+                                
+                            # Check if we've reached our content size limit
+                            if len(self.raw_text) > self.max_content_size:
+                                self.raw_text = self.raw_text[:self.max_content_size]
+                                self.raw_text += "\n\n[Content truncated: maximum content size reached]"
+                                break
+                                
+                        if not timeout_reached:
+                            logger.info(f"Extracted {len(self.raw_text)} characters from {page_count} pages with PyPDF2")
+                    except Exception as e:
+                        logger.error(f"Error with PyPDF2 processing: {str(e)}")
+                        self.raw_text = f"ERROR EXTRACTING TEXT: {str(e)}"
             else:
                 # No PDF library available
-                self.raw_text = "PDF SUPPORT NOT AVAILABLE. Please install PyMuPDF or PyPDF2."
-                logger.error("No PDF parsing library available. Install PyMuPDF or PyPDF2.")
+                error_msg = "PDF SUPPORT NOT AVAILABLE. Please install PyMuPDF or PyPDF2."
+                logger.error(error_msg)
+                self.raw_text = error_msg
         except Exception as e:
-            logger.error(f"Error extracting text from PDF: {str(e)}")
-            self.raw_text = f"ERROR EXTRACTING TEXT: {str(e)}"
+            error_str = str(e)
+            logger.error(f"Error extracting text from PDF: {error_str}")
+            logger.error(traceback.format_exc())
+            self.raw_text = f"ERROR EXTRACTING TEXT: {error_str}"
         
         # Log processing time
         end_time = time.time()
-        logger.info(f"PDF processing took {end_time - start_time:.2f} seconds")
+        self.processing_time = end_time - start_time
+        logger.info(f"PDF processing took {self.processing_time:.2f} seconds")
         
         return self
     
@@ -172,6 +234,17 @@ class PDFParser:
         # Start timing item extraction
         start_time = time.time()
         
+        # If the content is empty or very short, create a simple item
+        if not self.raw_text or len(self.raw_text) < 50:
+            items.append({
+                'id': str(uuid.uuid4()),
+                'prompt': "No text content found in PDF:",
+                'content': "This PDF appears to be empty or contains no extractable text. It may be an image-based PDF that requires OCR processing.",
+                'type': 'error',
+                'context': 'Empty Content'
+            })
+            return items
+            
         # For very large content, just split into chunks rather than trying complex parsing
         if len(self.raw_text) > 30000:
             logger.info("Content is large, using simple chunk splitting for performance")
@@ -204,11 +277,12 @@ class PDFParser:
             items.extend(self._extract_lists())
         except Exception as e:
             logger.error(f"Error during item extraction: {str(e)}")
+            logger.error(traceback.format_exc())
             # Fall back to simple content
             items = []
         
         # If no items were found or an error occurred, create a simple one with the raw text
-        if not items and self.raw_text:
+        if not items:
             # Split into manageable chunks
             chunks = self._split_into_chunks(self.raw_text, 500)
             for i, chunk in enumerate(chunks[:10]):  # Limit to 10 chunks
