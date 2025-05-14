@@ -10,11 +10,11 @@ cleanup() {
 # Set up trap to handle Ctrl+C
 trap cleanup INT TERM
 
-# Start the backend
+# Start the backend - Explicitly setting port to 5002
 echo "Starting the backend..."
 cd backend
 source venv/bin/activate
-python app.py &
+python app.py --port=5002 &
 BACKEND_PID=$!
 cd ..
 
@@ -28,9 +28,9 @@ npm start &
 FRONTEND_PID=$!
 cd ..
 
-# Print URLs
+# Print URLs - Updated to use port 5002 for backend
 echo "TypeSpark is running!"
-echo "Backend: http://localhost:5001"
+echo "Backend: http://localhost:5002"
 echo "Frontend: http://localhost:3000"
 echo "Press Ctrl+C to stop both servers"
 

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, FileText, RefreshCw, AlertCircle, Zap } from 'lucide-react';
 import axios from 'axios';
+import ConnectionTester from '../components/ConnectionTester';
 
-// Configure API URL - make sure this points to port 5002
+// Configure API URL - consistently use port 5002
 const API_URL = 'http://localhost:5002/api';
 
 // Configure Axios with defaults and timeout
@@ -70,16 +71,18 @@ function HomePage({ setSessionData }) {
     const formData = new FormData();
     formData.append('file', file);
 
+    // Log request details for debugging
+    console.log('Uploading file:', {
+      name: file.name,
+      type: file.type,
+      size: Math.round(file.size / 1024) + ' KB'
+    });
+    console.log('API URL:', API_URL);
+
     try {
-      console.log('Starting upload of file:', {
-        name: file.name,
-        type: file.type,
-        size: file.size
-      });
-      
       const startTime = Date.now();
       
-      // Send the upload request
+      // Send the upload request with explicit timeout and headers
       const response = await axios.post(`${API_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
@@ -90,7 +93,8 @@ function HomePage({ setSessionData }) {
             console.log(`Upload progress: ${percentCompleted}%`);
             setUploadProgress(percentCompleted);
           }
-        }
+        },
+        timeout: 60000 // 60 second timeout
       });
       
       const endTime = Date.now();
@@ -100,21 +104,31 @@ function HomePage({ setSessionData }) {
 
       if (response.data && response.data.session_id) {
         // Store session data and navigate to practice page
+        console.log('Setting session data:', response.data);
         setSessionData(response.data);
         navigate('/practice');
       } else {
         setError('No content could be extracted from the file.');
       }
     } catch (err) {
-      console.error('Upload error:', err);
+      console.error('Upload error details:', err);
+      
+      // More detailed error logging
+      if (err.response) {
+        console.error('Error response:', { 
+          status: err.response.status,
+          headers: err.response.headers,
+          data: err.response.data
+        });
+      }
       
       // Provide more user-friendly error messages
       if (err.code === 'ECONNABORTED') {
         setError('The request took too long. Please try a smaller file or use the Quick Start option.');
       } else if (err.response) {
-        setError(err.response.data?.error || `Error: ${err.response.status}`);
+        setError(err.response.data?.error || `Error: ${err.response.status} - ${err.response.statusText}`);
       } else if (err.request) {
-        setError('No response from server. Please check if the backend is running.');
+        setError(`No response from server at ${API_URL}. Please check if the backend is running.`);
       } else {
         setError(err.message || 'An error occurred during upload');
       }
@@ -188,7 +202,7 @@ function HomePage({ setSessionData }) {
       } else if (err.response) {
         setError(err.response.data?.error || `Error: ${err.response.status}`);
       } else if (err.request) {
-        setError('No response from server. Please check if the backend is running.');
+        setError('No response from server. Please check if the backend is running on port 5002.');
       } else {
         setError(err.message || 'An error occurred during upload');
       }
@@ -219,7 +233,7 @@ function HomePage({ setSessionData }) {
       if (err.response) {
         setError(err.response.data?.error || `Error: ${err.response.status}`);
       } else if (err.request) {
-        setError('No response from server. Please check if the backend is running.');
+        setError('No response from server. Please check if the backend is running on port 5002.');
       } else {
         setError(err.message || 'An error occurred during quick start');
       }
@@ -230,6 +244,9 @@ function HomePage({ setSessionData }) {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {/* Connection Tester Component - Added for debugging */}
+      <ConnectionTester />
+
       <div className="text-center mb-12">
         <h1 className="text-3xl font-bold mb-4">TypeSpark Study App</h1>
         <p className="text-light-text-secondary dark:text-text-secondary text-lg">

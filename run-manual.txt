@@ -1,0 +1,29 @@
+MANUAL STARTUP INSTRUCTIONS
+
+If you're having issues with the automatic run.sh script, follow these steps:
+
+1. Start the backend:
+   Open a terminal window and run:
+   
+   cd backend
+   
+   # If you have a virtual environment:
+   source venv/bin/activate  # or appropriate command for your system
+   
+   # Start the backend on port 5002
+   python app.py --port=5002
+   
+2. Start the frontend:
+   Open another terminal window and run:
+   
+   cd frontend
+   npm start
+   
+3. Access the application:
+   - Backend API should be available at http://localhost:5002
+   - Frontend should be available at http://localhost:3000
+   
+If you need to debug connection issues:
+- Check browser console (F12) for frontend errors
+- Check backend terminal for any error messages
+- The ConnectionTester component will help diagnose issues

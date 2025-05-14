@@ -1,8 +1,9 @@
-// Optimized api.js with better error handling and timeout configuration
+// api.js - Optimized with better error handling and consistent port usage
+
 import axios from 'axios';
 
 // Configure the API URL based on current environment
-// This must match the port in your backend app.py
+// Consistently use port 5002 for the backend
 const API_URL = 'http://localhost:5002/api';
 
 // Create an axios instance with default configuration
@@ -18,10 +19,13 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.response.use(
   response => response,
   error => {
+    // Log all errors for debugging
+    console.error('API Error:', error);
+    
     // Handle network errors
     if (error.message === 'Network Error') {
       console.error('Network error - server may be down');
-      return Promise.reject(new Error('Server is unreachable. Please verify the backend server is running.'));
+      return Promise.reject(new Error('Server is unreachable. Please verify the backend server is running on port 5002.'));
     }
     
     // Handle timeout errors
@@ -35,6 +39,18 @@ axiosInstance.interceptors.response.use(
       return Promise.reject(new Error(error.response.data.error));
     }
     
+    return Promise.reject(error);
+  }
+);
+
+// Add request interceptor for debugging
+axiosInstance.interceptors.request.use(
+  config => {
+    console.log(`Request: ${config.method.toUpperCase()} ${config.url}`);
+    return config;
+  },
+  error => {
+    console.error('Request error:', error);
     return Promise.reject(error);
   }
 );
@@ -59,7 +75,8 @@ const api = {
     try {
       console.log(`Starting upload: ${file.name} (${file.size / 1024} KB)`);
       
-      const response = await axiosInstance.post('/upload', formData, {
+      // Use axios.post directly for FormData
+      const response = await axios.post(`${API_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
@@ -69,14 +86,28 @@ const api = {
             console.log(`Upload progress: ${percentCompleted}%`);
             onProgress(percentCompleted);
           }
-        }
+        },
+        timeout: 60000 // 60 second timeout
       });
       
-      console.log('Upload completed successfully');
+      console.log('Upload completed successfully:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Upload failed:', error.message);
-      throw error;
+      console.error('Upload failed:', error);
+      
+      let errorMessage = 'Upload failed';
+      
+      if (error.code === 'ECONNABORTED') {
+        errorMessage = 'Upload timed out. Try a smaller file or check the backend server.';
+      } else if (error.response) {
+        errorMessage = error.response.data?.error || `Server error: ${error.response.status}`;
+      } else if (error.request) {
+        errorMessage = 'No response from server. Check if the backend is running on port 5002.';
+      } else {
+        errorMessage = error.message || 'Unknown upload error';
+      }
+      
+      throw new Error(errorMessage);
     }
   },
   

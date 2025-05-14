@@ -3,8 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { Clock, ArrowRight, Home, AlertCircle } from 'lucide-react';
 import statsStorage from '../services/statsStorage';
 import DebugInfo from '../DebugInfo';
+import axios from 'axios';
 
+// Ensure consistent API URL
 const API_URL = 'http://localhost:5002/api';
+
+// Create axios instance with default config
+const api = axios.create({
+  baseURL: API_URL,
+  timeout: 30000, // 30 second timeout
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
 
 function PracticePage({ sessionData }) {
   const navigate = useNavigate();
@@ -49,7 +60,7 @@ function PracticePage({ sessionData }) {
     };
   }, []);
 
-  // Wrap timer functions in useCallback
+  // Timer functions wrapped in useCallback
   const startTimer = useCallback(() => {
     setIsActive(true);
     startTime.current = Date.now();
@@ -76,8 +87,7 @@ function PracticePage({ sessionData }) {
 
   // Load next item from the session
   const loadNextItem = useCallback(async () => {
-    // Prevent duplicate requests
-    if (isLoadingRef.current) {
+    if (isLoadingRef.current || !sessionData || !sessionData.session_id) {
       return;
     }
     
@@ -88,53 +98,15 @@ function PracticePage({ sessionData }) {
     }
     
     try {
-      console.log("Loading next item for session:", sessionData?.session_id);
-      const response = await fetch(`${API_URL}/session/${sessionData.session_id}/next`);
+      console.log("Loading next item for session:", sessionData.session_id);
       
-      console.log("Response status:", response.status);
-      
-      // Check for a successful response
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.log("Error data:", errorData);
-        
-        // Handle case where there are no more items
-        if (response.status === 400) {
-          console.log('No more items, going to stats');
-          
-          // Record session stats if not already done
-          if (!sessionProcessed.current && stats.wpm > 0) {
-            sessionProcessed.current = true;
-            statsStorage.recordSession({
-              date: new Date().toISOString(),
-              duration: timer,
-              items: progress.current,
-              wpm: stats.wpm,
-              accuracy: stats.accuracy
-            });
-          }
-          
-          // Navigate to stats page after a brief delay
-          setTimeout(() => {
-            if (!isUnmounted.current) {
-              navigate('/stats');
-            }
-          }, 300);
-          
-          return;
-        }
-        
-        // Handle other errors
-        throw new Error(errorData.error || "Failed to load next item");
-      }
-      
-      // Process the successful response
-      const data = await response.json();
-      console.log("Next item data:", data);
+      // Use axios instead of fetch for better error handling
+      const response = await api.get(`/session/${sessionData.session_id}/next`);
+      console.log("Next item response:", response.data);
       
       if (!isUnmounted.current) {
-        setCurrentItem(data.item);
-        setProgress(data.progress);
+        setCurrentItem(response.data.item);
+        setProgress(response.data.progress);
         setUserInput('');
         setResults(null);
         setPhase(1);
@@ -145,9 +117,35 @@ function PracticePage({ sessionData }) {
     } catch (error) {
       console.error('Error loading next item:', error);
       
+      // Handle the "no more items" case
+      if (error.response && error.response.status === 400) {
+        console.log('No more items, going to stats');
+          
+        // Record session stats
+        if (!sessionProcessed.current && stats.wpm > 0) {
+          sessionProcessed.current = true;
+          statsStorage.recordSession({
+            date: new Date().toISOString(),
+            duration: timer,
+            items: progress.current,
+            wpm: stats.wpm,
+            accuracy: stats.accuracy
+          });
+        }
+        
+        // Navigate to stats after delay
+        setTimeout(() => {
+          if (!isUnmounted.current) {
+            navigate('/stats');
+          }
+        }, 300);
+        
+        return;
+      }
+      
       if (!isUnmounted.current) {
         setLoading(false);
-        setError(`Could not load practice item: ${error.message}`);
+        setError(`Could not load practice item: ${error.message || 'Unknown error'}`);
       }
     } finally {
       isLoadingRef.current = false;
@@ -190,10 +188,8 @@ function PracticePage({ sessionData }) {
 
   // Handle submission of user's answer
   const handleSubmit = useCallback(async () => {
-    // Prevent submission when not in input phase or when timer is inactive
-    if (phase !== 1 || !isActive) return;
+    if (phase !== 1 || !isActive || !currentItem) return;
     
-    // Stop timer
     setIsActive(false);
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
@@ -201,44 +197,36 @@ function PracticePage({ sessionData }) {
     }
 
     try {
-      // Submit the answer using fetch
-      const response = await fetch(`${API_URL}/session/${sessionData.session_id}/submit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          item_id: currentItem.id,
-          answer: userInput,
-          time_taken: timer
-        }),
+      console.log("Submitting answer for session:", sessionData.session_id);
+      
+      // Use axios instead of fetch
+      const response = await api.post(`/session/${sessionData.session_id}/submit`, {
+        item_id: currentItem.id,
+        answer: userInput,
+        time_taken: timer
       });
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      
-      const data = await response.json();
+      console.log("Submit response:", response.data);
       
       if (!isUnmounted.current) {
-        setResults(data.result);
+        setResults(response.data.result);
         setPhase(2);
         
         // Calculate stats
-        const result = data.result;
+        const result = response.data.result;
         const wpm = Math.round(result.wpm);
         const accuracy = Math.round(result.accuracy * 100);
         
         setStats({ wpm, accuracy });
         
         // Record session if this is the last item
-        if (data.progress.current >= data.progress.total) {
+        if (response.data.progress.current >= response.data.progress.total) {
           if (!sessionProcessed.current) {
             sessionProcessed.current = true;
             statsStorage.recordSession({
               date: new Date().toISOString(),
               duration: timer,
-              items: data.progress.current,
+              items: response.data.progress.current,
               wpm: wpm,
               accuracy: accuracy
             });
@@ -249,11 +237,9 @@ function PracticePage({ sessionData }) {
       console.error('Error submitting answer:', error);
       
       if (!isUnmounted.current) {
-        setError('Could not submit your answer. Please try again.');
+        setError('Could not submit your answer: ' + (error.message || 'Unknown error'));
         setIsActive(true); // Re-enable typing
-        
-        // Restart the timer where it left off
-        startTimer();
+        startTimer(); // Restart timer
       }
     }
   }, [currentItem, isActive, phase, sessionData, timer, userInput, startTimer]);

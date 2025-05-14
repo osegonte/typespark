@@ -1,4 +1,61 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Upload, FileText, RefreshCw, AlertCircle, Zap } from 'lucide-react';
+import axios from 'axios';
+import ConnectionTester from '../components/ConnectionTester';
+
+// Configure API URL - consistently use port 5002
+const API_URL = 'http://localhost:5002/api';
+
+// Import a debugger to help with connection issues
+const testBackendConnection = async () => {
+  try {
+    console.log("Testing backend connection to:", API_URL);
+    const response = await axios.get(`${API_URL}/health`, { timeout: 5000 });
+    console.log("Backend connection successful:", response.data);
+    return { success: true, data: response.data };
+  } catch (error) {
+    console.error("Backend connection failed:", error.message);
+    
+    // Try alternative port
+    try {
+      const altResponse = await axios.get('http://localhost:5002/api/health', { timeout: 3000 });
+      console.log("Connected to port 5001 instead:", altResponse.data);
+      return { 
+        success: false, 
+        error: "Connected to port 5001 instead of 5002",
+        altData: altResponse.data 
+      };
+    } catch (altError) {
+      return { success: false, error: error.message };
+    }
+  }
+};
+
+// Debug utility to fix common issues
+const fixCommonIssues = () => {
+  console.log("=== TypeSpark Connection Troubleshooting ===");
+  console.log("1. Checking backend connectivity...");
+  testBackendConnection().then(result => {
+    if (result.success) {
+      console.log("✅ Backend connection working on port 5002");
+    } else {
+      console.log("❌ Backend connection failed:", result.error);
+      console.log("Troubleshooting tips:");
+      console.log("- Make sure backend is running: cd backend && python app.py");
+      console.log("- Ensure backend is using port 5002");
+      console.log("- Check browser console for CORS errors");
+      
+      if (result.altData) {
+        console.log("⚠️ Found backend on port 5001 instead of 5002");
+        console.log("Please restart backend with: python app.py --port=5002");
+      }
+    }
+  });
+};
+
+// Add this to window for easy access from browser console
+window.debugTypeSpark = { testBackendConnection, fixCommonIssues };
 
 function DebugInfo() {
   const [backendInfo, setBackendInfo] = useState(null);
@@ -19,7 +76,7 @@ function DebugInfo() {
         
         // Try alternative port
         try {
-          const altResponse = await fetch('http://localhost:5001/api/health');
+          const altResponse = await fetch('http://localhost:5002/api/health');
           if (altResponse.ok) {
             const altData = await altResponse.json();
             setBackendInfo({...altData, note: "Connected via port 5001 instead of 5002"});
@@ -42,7 +99,7 @@ function DebugInfo() {
       </div>
       
       <div className="mb-2">
-        <strong>API URL used:</strong> {window.API_URL || 'Not defined - using default'}
+        <strong>API URL used:</strong> {API_URL}
       </div>
       
       {error && (
@@ -67,6 +124,15 @@ function DebugInfo() {
           <li>If API URL doesn't match your backend port, update it in frontend/src/services/api.js</li>
           <li>Check the console (F12) for more detailed errors</li>
         </ol>
+      </div>
+      
+      <div className="mt-4">
+        <button
+          onClick={() => fixCommonIssues()}
+          className="px-3 py-1 bg-blue-500 text-white rounded"
+        >
+          Run Automatic Troubleshooter
+        </button>
       </div>
     </div>
   );

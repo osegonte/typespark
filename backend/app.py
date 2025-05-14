@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 import os
 import json
@@ -6,7 +6,6 @@ import uuid
 import time
 from werkzeug.utils import secure_filename
 from pdf_parser import PDFParser
-from flask import Flask, request, jsonify, send_from_directory, make_response
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -15,12 +14,20 @@ MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB limit
 
 app = Flask(__name__, static_folder='../frontend/build')
 
-# Set up CORS with more permissive settings for development
+# Improved CORS setup to handle all requests properly
 CORS(app, 
      resources={r"/api/*": {"origins": "*"}}, 
      supports_credentials=True,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-     allow_headers=["Content-Type", "Authorization"])
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"])
+
+# Add a CORS preflight handler for all routes
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 # Import diagnostic routes and register them
 try:
@@ -50,7 +57,13 @@ def upload_file():
     """Handle file upload and process it for study content with better error handling"""
     # Handle pre-flight OPTIONS request
     if request.method == 'OPTIONS':
-        return '', 200
+        response = make_response('', 200)
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
+        })
+        return response
     
     print("=== Upload request received ===")
     print(f"Content-Type: {request.content_type}")
@@ -167,7 +180,11 @@ def upload_file():
                 'items_count': len(study_items)
             }
             print(f"Session created successfully: {result}")
-            return jsonify(result)
+            
+            response = jsonify(result)
+            # Add explicit CORS header
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response
         except Exception as e:
             print(f"Error during upload process: {str(e)}")
             return jsonify({'error': f'Server error during upload: {str(e)}'}), 500
@@ -213,11 +230,14 @@ def quickstart():
             'filename': 'quickstart.txt'
         }
         
-        return jsonify({
+        response = jsonify({
             'session_id': session_id,
             'filename': 'quickstart.txt',
             'items_count': len(study_items)
         })
+        # Add explicit CORS header
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
     except Exception as e:
         print(f"Error creating quick start session: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
@@ -228,14 +248,23 @@ def get_session(session_id):
     if session_id not in sessions:
         return jsonify({'error': 'Session not found'}), 404
         
-    return jsonify(sessions[session_id])
+    response = jsonify(sessions[session_id])
+    # Add explicit CORS header
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
 
 @app.route('/api/session/<session_id>/next', methods=['GET', 'OPTIONS'])
 def get_next_item(session_id):
-    """Get the next study item from the session with improved error handling"""
+    """Get the next study item from the session with improved error handling and CORS support"""
     # Handle pre-flight OPTIONS request
     if request.method == 'OPTIONS':
-        return '', 200
+        response = make_response('', 200)
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
+        })
+        return response
         
     try:
         # Log the request for debugging
@@ -261,13 +290,18 @@ def get_next_item(session_id):
         
         print(f"Returning item {session['current_index']}/{session['total_items']} for session {session_id}")
         
-        return jsonify({
+        response = jsonify({
             'item': item,
             'progress': {
                 'current': session['current_index'],
                 'total': session['total_items']
             }
         })
+        
+        # Explicitly add CORS headers to the response
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
     except Exception as e:
         print(f"Error getting next item: {str(e)}")
         import traceback
@@ -276,12 +310,21 @@ def get_next_item(session_id):
 
 @app.route('/api/session/<session_id>/submit', methods=['POST', 'OPTIONS'])
 def submit_answer(session_id):
-    """Submit an answer for the current item"""
+    """Submit an answer for the current item with improved CORS support"""
     # Handle pre-flight OPTIONS request
     if request.method == 'OPTIONS':
-        return '', 200
+        response = make_response('', 200)
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
+        })
+        return response
         
     try:
+        print(f"Submit answer request for session: {session_id}")
+        print(f"Request data: {request.json}")
+        
         if session_id not in sessions:
             return jsonify({'error': 'Session not found'}), 404
         
@@ -324,28 +367,39 @@ def submit_answer(session_id):
         }
         
         # In a real app, we'd store this result in a database
+        print(f"Calculated result: {result}")
         
-        return jsonify({
+        response = jsonify({
             'result': result,
             'progress': {
                 'current': session['current_index'],
                 'total': session['total_items']
             }
         })
+        
+        # Explicitly add CORS headers to the response
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
     except Exception as e:
         print(f"Error submitting answer: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint to verify the server is running"""
-    return jsonify({
+    response = jsonify({
         'status': 'ok',
         'version': '1.0',
         'upload_folder': UPLOAD_FOLDER,
         'upload_folder_exists': os.path.exists(UPLOAD_FOLDER),
         'timestamp': time.time()
     })
+    # Add explicit CORS header
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
 
 # Serve React app
 @app.route('/', defaults={'path': ''})
@@ -362,5 +416,22 @@ def handle_exception(e):
     print(f"Unhandled exception: {str(e)}")
     return jsonify({'error': 'An unexpected error occurred'}), 500
 
+if __name__ == '__main__':
+    import argparse
+    
+    # Add command-line arguments for customization
+    parser = argparse.ArgumentParser(description='Run the TypeSpark backend server')
+    parser.add_argument('--port', type=int, default=5002, help='Port to run the server on')
+    parser.add_argument('--debug', action='store_true', help='Run in debug mode')
+    parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to run the server on')
+    
+    args = parser.parse_args()
+    
+    # Ensure uploads directory exists
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    
+    print(f"Starting TypeSpark backend on port {args.port}")
+    app.run(debug=args.debug, host=args.host, port=args.port)
+# Modified by fix script
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)
