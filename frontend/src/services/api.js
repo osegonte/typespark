@@ -1,17 +1,32 @@
-// api.js - Optimized with better error handling and consistent port usage
-
+// api.js - Updated to try multiple connection methods
 import axios from 'axios';
 
+// Try several possible URLs for the backend - we'll figure out which one works
+// Order of preference: IP (if available) > localhost > 127.0.0.1
+const getApiUrl = () => {
+  // Get hostname of current page (will be localhost or IP address)
+  const hostName = window.location.hostname;
+  
+  // Try using IP from window.location first
+  if (hostName !== 'localhost' && hostName !== '127.0.0.1') {
+    return `http://${hostName}:5002/api`;
+  }
+  
+  // If running on localhost, use that
+  return 'http://localhost:5002/api';
+};
+
 // Configure the API URL based on current environment
-// Consistently use port 5002 for the backend
-const API_URL = 'http://localhost:5002/api';
+const API_URL = getApiUrl();
+console.log('Using API URL:', API_URL);
 
 // Create an axios instance with default configuration
 const axiosInstance = axios.create({
   baseURL: API_URL,
   timeout: 60000, // 60 second timeout for PDF processing
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
   }
 });
 
@@ -55,14 +70,60 @@ axiosInstance.interceptors.request.use(
   }
 );
 
-const api = {
-  // Check backend connectivity
-  checkHealth: async () => {
+// Backup function to try multiple endpoints if the primary one fails
+const tryMultipleEndpoints = async (path, method = 'GET', data = null, config = {}) => {
+  // List of possible base URLs to try
+  const baseUrls = [
+    `http://${window.location.hostname}:5002/api`, // Current hostname
+    'http://localhost:5002/api',                   // localhost
+    'http://127.0.0.1:5002/api'                    // IP loopback
+  ];
+  
+  // Try each endpoint until one works
+  for (const baseUrl of baseUrls) {
     try {
-      const response = await axiosInstance.get('/health', { timeout: 5000 });
+      const url = `${baseUrl}${path}`;
+      console.log(`Trying endpoint: ${url}`);
+      
+      let response;
+      if (method === 'GET') {
+        response = await axios.get(url, {
+          ...config,
+          timeout: 3000 // Short timeout for quick testing
+        });
+      } else if (method === 'POST') {
+        response = await axios.post(url, data, {
+          ...config,
+          timeout: 3000
+        });
+      }
+      
+      console.log(`Success with endpoint: ${baseUrl}`);
+      
+      // Update the axiosInstance baseURL if we found a working endpoint
+      if (baseUrl !== API_URL) {
+        console.log(`Updating API_URL from ${API_URL} to ${baseUrl}`);
+        axiosInstance.defaults.baseURL = baseUrl;
+      }
+      
       return response.data;
     } catch (error) {
-      console.error('Health check failed:', error);
+      console.warn(`Failed with endpoint ${baseUrl}:`, error.message);
+      // Continue to try the next endpoint
+    }
+  }
+  
+  // If all endpoints failed, throw an error
+  throw new Error('Could not connect to any backend endpoint. Please check if the server is running.');
+};
+
+const api = {
+  // Check backend connectivity - tries multiple endpoints
+  checkHealth: async () => {
+    try {
+      return await tryMultipleEndpoints('/health');
+    } catch (error) {
+      console.error('Health check failed with all endpoints:', error);
       throw error;
     }
   },
@@ -75,47 +136,76 @@ const api = {
     try {
       console.log(`Starting upload: ${file.name} (${file.size / 1024} KB)`);
       
-      // Use axios.post directly for FormData
-      const response = await axios.post(`${API_URL}/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
-        onUploadProgress: progressEvent => {
-          if (onProgress && progressEvent.total) {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            console.log(`Upload progress: ${percentCompleted}%`);
-            onProgress(percentCompleted);
+      // Try multiple endpoints for upload
+      const baseUrls = [
+        `http://${window.location.hostname}:5002/api`,
+        'http://localhost:5002/api',
+        'http://127.0.0.1:5002/api'
+      ];
+      
+      let uploadError = null;
+      
+      for (const baseUrl of baseUrls) {
+        try {
+          const url = `${baseUrl}/upload`;
+          console.log(`Trying upload to: ${url}`);
+          
+          const response = await axios.post(url, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            },
+            onUploadProgress: progressEvent => {
+              if (onProgress && progressEvent.total) {
+                const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                console.log(`Upload progress: ${percentCompleted}%`);
+                onProgress(percentCompleted);
+              }
+            },
+            timeout: 60000 // 60 second timeout
+          });
+          
+          console.log('Upload completed successfully:', response.data);
+          
+          // Update axiosInstance baseURL if we found a working endpoint
+          if (baseUrl !== API_URL) {
+            console.log(`Updating API_URL from ${API_URL} to ${baseUrl}`);
+            axiosInstance.defaults.baseURL = baseUrl;
           }
-        },
-        timeout: 60000 // 60 second timeout
-      });
+          
+          return response.data;
+        } catch (error) {
+          console.warn(`Upload failed to ${baseUrl}:`, error.message);
+          uploadError = error;
+          // Continue to try the next endpoint
+        }
+      }
       
-      console.log('Upload completed successfully:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Upload failed:', error);
+      // If we got here, all endpoints failed
+      console.error('Upload failed to all endpoints');
       
-      let errorMessage = 'Upload failed';
+      let errorMessage = 'Upload failed to all endpoints';
       
-      if (error.code === 'ECONNABORTED') {
+      if (uploadError.code === 'ECONNABORTED') {
         errorMessage = 'Upload timed out. Try a smaller file or check the backend server.';
-      } else if (error.response) {
-        errorMessage = error.response.data?.error || `Server error: ${error.response.status}`;
-      } else if (error.request) {
+      } else if (uploadError.response) {
+        errorMessage = uploadError.response.data?.error || `Server error: ${uploadError.response.status}`;
+      } else if (uploadError.request) {
         errorMessage = 'No response from server. Check if the backend is running on port 5002.';
       } else {
-        errorMessage = error.message || 'Unknown upload error';
+        errorMessage = uploadError.message || 'Unknown upload error';
       }
       
       throw new Error(errorMessage);
+    } catch (error) {
+      console.error('Upload failed:', error);
+      throw error;
     }
   },
   
   // Create a quick start session
   createQuickStart: async () => {
     try {
-      const response = await axiosInstance.get('/quickstart');
-      return response.data;
+      return await tryMultipleEndpoints('/quickstart');
     } catch (error) {
       console.error('Quick start failed:', error);
       throw error;
@@ -125,8 +215,7 @@ const api = {
   // Get session details
   getSession: async (sessionId) => {
     try {
-      const response = await axiosInstance.get(`/session/${sessionId}`);
-      return response.data;
+      return await tryMultipleEndpoints(`/session/${sessionId}`);
     } catch (error) {
       console.error('Get session failed:', error);
       throw error;
@@ -136,8 +225,7 @@ const api = {
   // Get next item
   getNextItem: async (sessionId) => {
     try {
-      const response = await axiosInstance.get(`/session/${sessionId}/next`);
-      return response.data;
+      return await tryMultipleEndpoints(`/session/${sessionId}/next`);
     } catch (error) {
       // Special handling for "no more items" error (expected behavior)
       if (error.response && error.response.status === 400) {
@@ -151,12 +239,15 @@ const api = {
   // Submit answer
   submitAnswer: async (sessionId, itemId, answer, timeTaken) => {
     try {
-      const response = await axiosInstance.post(`/session/${sessionId}/submit`, {
-        item_id: itemId,
-        answer: answer,
-        time_taken: timeTaken
-      });
-      return response.data;
+      return await tryMultipleEndpoints(
+        `/session/${sessionId}/submit`, 
+        'POST', 
+        {
+          item_id: itemId,
+          answer: answer,
+          time_taken: timeTaken
+        }
+      );
     } catch (error) {
       console.error('Submit answer failed:', error);
       throw error;
@@ -166,8 +257,7 @@ const api = {
   // System diagnostics
   getDiagnostics: async () => {
     try {
-      const response = await axiosInstance.get('/diagnostics/system');
-      return response.data;
+      return await tryMultipleEndpoints('/diagnostics/system');
     } catch (error) {
       // Silently fail for diagnostics
       console.error('Unable to retrieve system diagnostics:', error);
@@ -178,8 +268,7 @@ const api = {
   // Check PDF support
   checkPdfSupport: async () => {
     try {
-      const response = await axiosInstance.get('/diagnostics/pdf');
-      return response.data;
+      return await tryMultipleEndpoints('/diagnostics/pdf');
     } catch (error) {
       console.error('PDF support check failed:', error);
       return { 
@@ -192,8 +281,7 @@ const api = {
   // Clean uploads
   cleanUploads: async () => {
     try {
-      const response = await axiosInstance.post('/diagnostics/cleanup');
-      return response.data;
+      return await tryMultipleEndpoints('/diagnostics/cleanup', 'POST');
     } catch (error) {
       console.error('Unable to clean uploads:', error);
       return { error: 'Cleanup failed' };

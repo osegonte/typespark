@@ -5,10 +5,11 @@ import axios from 'axios';
 import ConnectionTester from '../components/ConnectionTester';
 
 // Configure API URL - consistently use port 5002
-const API_URL = 'http://localhost:5002/api';
+const API_URL = 'http://188.136.27.4:5002/api';
+
 
 // Configure Axios with defaults and timeout
-const api = axios.create({
+const apiClient = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json'
@@ -244,7 +245,7 @@ function HomePage({ setSessionData }) {
 
   return (
     <div className="max-w-4xl mx-auto">
-      {/* Connection Tester Component - Added for debugging */}
+      {/* Connection Tester Component */}
       <ConnectionTester />
 
       <div className="text-center mb-12">

@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, RefreshCw, AlertCircle, Zap } from 'lucide-react';
 import axios from 'axios';
-import ConnectionTester from '../components/ConnectionTester';
 
 // Configure API URL - consistently use port 5002
-const API_URL = 'http://localhost:5002/api';
+const API_URL = 'http://188.136.27.4:5002/api';
 
 // Import a debugger to help with connection issues
 const testBackendConnection = async () => {
@@ -19,7 +16,7 @@ const testBackendConnection = async () => {
     
     // Try alternative port
     try {
-      const altResponse = await axios.get('http://localhost:5002/api/health', { timeout: 3000 });
+      const altResponse = await axios.get('http://localhost:5001/api/health', { timeout: 3000 });
       console.log("Connected to port 5001 instead:", altResponse.data);
       return { 
         success: false, 
@@ -76,7 +73,7 @@ function DebugInfo() {
         
         // Try alternative port
         try {
-          const altResponse = await fetch('http://localhost:5002/api/health');
+          const altResponse = await fetch('http://localhost:5001/api/health');
           if (altResponse.ok) {
             const altData = await altResponse.json();
             setBackendInfo({...altData, note: "Connected via port 5001 instead of 5002"});
