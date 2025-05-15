@@ -1,15 +1,8 @@
-// This script fixes API URLs in the frontend to match the backend
-// Save as frontend/src/services/api.js
-
+// API service with consistent port usage
 import axios from 'axios';
 
-// Get API URL based on current environment
-const getApiUrl = () => {
-  return 'http://localhost:5002/api';
-};
-
-// Configure the API URL
-const API_URL = getApiUrl();
+// Configure API URL - consistently use port 5005
+const API_URL = 'http://localhost:5005/api';
 console.log('Using API URL:', API_URL);
 
 // Create an axios instance with default configuration
@@ -32,7 +25,7 @@ axiosInstance.interceptors.response.use(
     // Handle network errors
     if (error.message === 'Network Error') {
       console.error('Network error - server may be down');
-      return Promise.reject(new Error('Server is unreachable. Please verify the backend server is running on port 5002.'));
+      return Promise.reject(new Error('Server is unreachable. Please verify the backend server is running on port 5005.'));
     }
     
     // Handle timeout errors
@@ -109,7 +102,7 @@ const api = {
       } else if (error.response) {
         errorMessage = error.response.data?.error || `Server error: ${error.response.status}`;
       } else if (error.request) {
-        errorMessage = 'No response from server. Check if the backend is running on port 5002.';
+        errorMessage = 'No response from server. Check if the backend is running on port 5005.';
       } else {
         errorMessage = error.message || 'Unknown upload error';
       }

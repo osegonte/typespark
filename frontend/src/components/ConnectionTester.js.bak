@@ -4,6 +4,7 @@ import axios from 'axios';
 
 // API URL for testing - Consistently use port 5002
 const API_URL = 'http://localhost:5002/api';
+
 function ConnectionTester() {
   const [status, setStatus] = useState('unknown');
   const [error, setError] = useState(null);
@@ -17,7 +18,15 @@ function ConnectionTester() {
     setError(null);
     
     try {
-      const response = await axios.get(`${API_URL}/health`, { timeout: 5000 });
+      console.log('Testing connection to backend at:', API_URL);
+      const response = await axios.get(`${API_URL}/health`, { 
+        timeout: 5000,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
       setStatus('connected');
       setDetails(response.data);
       console.log('Backend connection success:', response.data);
@@ -31,7 +40,14 @@ function ConnectionTester() {
         setError('Wrong port: Connected to port 5001 instead of 5002. Update your backend to use port 5002.');
         setDetails(altResponse.data);
       } catch (altError) {
-        setError(error.message || 'Could not connect to backend');
+        // If alternate port also fails, show the original error
+        if (error.response) {
+          setError(`Server error: ${error.response.status} - ${error.response.statusText}`);
+        } else if (error.request) {
+          setError('No response received from server. Make sure the backend is running.');
+        } else {
+          setError(error.message || 'Could not connect to backend');
+        }
       }
     } finally {
       setIsLoading(false);
@@ -105,10 +121,10 @@ function ConnectionTester() {
         <div className="mt-2 text-sm">
           <p className="font-semibold">Troubleshooting steps:</p>
           <ol className="list-decimal pl-5 mt-1">
-            <li>Verify backend is running with <code className="bg-gray-200 dark:bg-gray-800 px-1 rounded">python app.py</code></li>
+            <li>Verify backend is running with <code className="bg-gray-200 dark:bg-gray-800 px-1 rounded">python app.py --port=5002</code></li>
             <li>Ensure backend is using port 5002</li>
             <li>Check for any error messages in the backend console</li>
-            <li>Restart both frontend and backend</li>
+            <li>Run the fix script: <code className="bg-gray-200 dark:bg-gray-800 px-1 rounded">./fix_typespark.sh</code></li>
           </ol>
         </div>
       )}

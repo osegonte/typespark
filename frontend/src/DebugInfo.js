@@ -8,7 +8,13 @@ const API_URL = 'http://localhost:5002/api';
 const testBackendConnection = async () => {
   try {
     console.log("Testing backend connection to:", API_URL);
-    const response = await axios.get(`${API_URL}/health`, { timeout: 5000 });
+    const response = await axios.get(`${API_URL}/health`, { 
+      timeout: 5000,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
     console.log("Backend connection successful:", response.data);
     return { success: true, data: response.data };
   } catch (error) {
@@ -20,11 +26,15 @@ const testBackendConnection = async () => {
       console.log("Connected to port 5001 instead:", altResponse.data);
       return { 
         success: false, 
-        error: "Connected to port 5001 instead of 5002",
+        error: "Connected to port 5001 instead of 5002. The backend is running on the wrong port.",
         altData: altResponse.data 
       };
     } catch (altError) {
-      return { success: false, error: error.message };
+      return { 
+        success: false, 
+        error: error.message,
+        details: "Backend server may not be running or may be on a different port." 
+      };
     }
   }
 };
@@ -39,9 +49,9 @@ const fixCommonIssues = () => {
     } else {
       console.log("❌ Backend connection failed:", result.error);
       console.log("Troubleshooting tips:");
-      console.log("- Make sure backend is running: cd backend && python app.py");
-      console.log("- Ensure backend is using port 5002");
+      console.log("- Make sure backend is running: cd backend && python app.py --port=5002");
       console.log("- Check browser console for CORS errors");
+      console.log("- Run the fix script: ./fix_typespark.sh");
       
       if (result.altData) {
         console.log("⚠️ Found backend on port 5001 instead of 5002");
@@ -61,10 +71,17 @@ function DebugInfo() {
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        const response = await fetch('http://localhost:5002/api/health');
+        const response = await fetch(`${API_URL}/health`, {
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+        
         if (!response.ok) {
           throw new Error(`Status: ${response.status}`);
         }
+        
         const data = await response.json();
         setBackendInfo(data);
       } catch (err) {
@@ -76,7 +93,10 @@ function DebugInfo() {
           const altResponse = await fetch('http://localhost:5001/api/health');
           if (altResponse.ok) {
             const altData = await altResponse.json();
-            setBackendInfo({...altData, note: "Connected via port 5001 instead of 5002"});
+            setBackendInfo({
+              ...altData, 
+              note: "Connected via port 5001 instead of 5002. The backend is running on the wrong port."
+            });
           }
         } catch (altErr) {
           console.error("Alt port failed too:", altErr);
@@ -111,14 +131,20 @@ function DebugInfo() {
           <pre className="mt-2 text-xs overflow-auto max-h-40">
             {JSON.stringify(backendInfo, null, 2)}
           </pre>
+          {backendInfo.note && (
+            <div className="mt-2 p-2 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-500 text-yellow-700 dark:text-yellow-200 rounded">
+              <strong>Note:</strong> {backendInfo.note}
+            </div>
+          )}
         </div>
       )}
       
       <div className="mt-4">
-        <p><strong>Instructions:</strong></p>
+        <p><strong>Troubleshooting Instructions:</strong></p>
         <ol className="list-decimal pl-6">
-          <li>If you see "Backend Connection Error", make sure the backend is running</li>
-          <li>If API URL doesn't match your backend port, update it in frontend/src/services/api.js</li>
+          <li>If you see "Backend Connection Error", make sure the backend is running on port 5002</li>
+          <li>Run <code className="px-1 bg-gray-200 dark:bg-gray-700 rounded">python app.py --port=5002</code> in the backend directory</li>
+          <li>If needed, run the fix script: <code className="px-1 bg-gray-200 dark:bg-gray-700 rounded">./fix_typespark.sh</code></li>
           <li>Check the console (F12) for more detailed errors</li>
         </ol>
       </div>

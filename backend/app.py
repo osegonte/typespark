@@ -7,12 +7,14 @@ import time
 from werkzeug.utils import secure_filename
 from pdf_parser import PDFParser
 
-# Configuration
+# Configuration - CONSISTENTLY using port 5002
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'txt'}
 MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 10MB limit
+PORT = 5002  # Consistent port definition
 
-app = Flask(__name__, static_folder='../frontend/build')
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Improved CORS setup to handle all requests properly
 CORS(app, 
@@ -405,7 +407,8 @@ def health_check():
         'version': '1.0',
         'upload_folder': UPLOAD_FOLDER,
         'upload_folder_exists': os.path.exists(UPLOAD_FOLDER),
-        'timestamp': time.time()
+        'timestamp': time.time(),
+        'port': PORT  # Include port info in health check
     })
     # Add explicit CORS header
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -438,7 +441,7 @@ if __name__ == '__main__':
     
     # Add command-line arguments for customization
     parser = argparse.ArgumentParser(description='Run the TypeSpark backend server')
-    parser.add_argument('--port', type=int, default=5002, help='Port to run the server on')
+    parser.add_argument('--port', type=int, default=PORT, help='Port to run the server on')
     parser.add_argument('--debug', action='store_true', help='Run in debug mode')
     parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to run the server on')
     
@@ -449,7 +452,3 @@ if __name__ == '__main__':
     
     print(f"Starting TypeSpark backend on port {args.port}")
     app.run(debug=args.debug, host=args.host, port=args.port)
-
-# Always run on port 5002 if executed directly
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5002)
