@@ -16,7 +16,7 @@ app = Flask(__name__, static_folder='../frontend/build')
 
 # Improved CORS setup to handle all requests properly
 CORS(app, 
-     resources={r"/api/*": {"origins": "*"}}, 
+     resources={r"/*": {"origins": "*"}},  # Apply to ALL routes 
      supports_credentials=True,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization", "X-Requested-With"])
@@ -24,6 +24,16 @@ CORS(app,
 # Add a CORS preflight handler for all routes
 @app.after_request
 def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+# Pre-flight OPTIONS handler for all routes
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def options_handler(path):
+    response = app.make_default_options_response()
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
@@ -412,9 +422,16 @@ def serve(path):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    """Global error handler"""
+    """Global error handler with CORS headers"""
     print(f"Unhandled exception: {str(e)}")
-    return jsonify({'error': 'An unexpected error occurred'}), 500
+    response = jsonify({'error': 'An unexpected error occurred'})
+    
+    # Always add CORS headers to error responses
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    
+    return response, 500
 
 if __name__ == '__main__':
     import argparse
@@ -432,6 +449,7 @@ if __name__ == '__main__':
     
     print(f"Starting TypeSpark backend on port {args.port}")
     app.run(debug=args.debug, host=args.host, port=args.port)
-# Modified by fix script
+
+# Always run on port 5002 if executed directly
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)

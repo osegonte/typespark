@@ -6,7 +6,7 @@ import DebugInfo from '../DebugInfo';
 import axios from 'axios';
 
 // Ensure consistent API URL
-const API_URL = 'http://188.136.27.4:5002/api';
+const API_URL = 'http://localhost:5002/api';
 
 
 // Create axios instance with default config

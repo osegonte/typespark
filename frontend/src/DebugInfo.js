@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
 // Configure API URL - consistently use port 5002
-const API_URL = 'http://188.136.27.4:5002/api';
+const API_URL = 'http://localhost:5002/api';
 
 // Import a debugger to help with connection issues
 const testBackendConnection = async () => {

@@ -3,7 +3,7 @@ import { CheckCircle, XCircle, RefreshCw, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 
 // API URL for testing - Consistently use port 5002
-const API_URL = 'http://188.136.27.4:5002/api';
+const API_URL = 'http://localhost:5002/api';
 function ConnectionTester() {
   const [status, setStatus] = useState('unknown');
   const [error, setError] = useState(null);

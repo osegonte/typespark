@@ -5,7 +5,7 @@ import axios from 'axios';
 import ConnectionTester from '../components/ConnectionTester';
 
 // Configure API URL - consistently use port 5002
-const API_URL = 'http://188.136.27.4:5002/api';
+const API_URL = 'http://localhost:5002/api';
 
 
 // Configure Axios with defaults and timeout
