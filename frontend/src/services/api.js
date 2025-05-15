@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Configure API URL - consistently use port 5005
-const API_URL = 'http://localhost:5005/api';
+const API_URL = 'http://localhost:5002/api';
 console.log('Using API URL:', API_URL);
 
 // Create an axios instance with default configuration
